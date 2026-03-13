@@ -4,6 +4,11 @@ Run inside the Docker container:
     docker compose exec web python scripts/seed.py
 """
 
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from passlib.context import CryptContext
 
 from app.db.database import Base, SessionLocal, engine
