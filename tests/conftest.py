@@ -3,6 +3,7 @@
 Uses an in-memory SQLite database so tests run without a real PostgreSQL instance.
 Each test function gets a fresh session; all rows are cleared after each test.
 """
+from typing import Any, Generator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,7 +29,7 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_tables() -> None:
+def setup_tables() -> Generator[None, Any, None]:
     """Create all tables once for the entire test session."""
     Base.metadata.create_all(bind=engine)
     yield
