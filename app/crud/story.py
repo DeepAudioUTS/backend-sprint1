@@ -91,3 +91,32 @@ def get_story_by_id(
     if story is None:
         return None
     return StoryResponse.model_validate(story)
+
+
+def update_story_generated_text(
+    db: Session,
+    *,
+    story_id: uuid.UUID,
+    user_id: uuid.UUID,
+    content: str,
+    title: str | None,
+) -> StoryResponse | None:
+    """Persist generated text for a story if it belongs to the requesting user."""
+    stmt = (
+        select(Story)
+        .join(Child, Story.child_id == Child.id)
+        .where(Story.id == story_id, Child.user_id == user_id)
+    )
+    story = db.scalars(stmt).first()
+    if story is None:
+        return None
+
+    story.content = content
+    if title:
+        story.title = title
+    story.status = StoryStatus.GENERATING_AUDIO
+
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+    return StoryResponse.model_validate(story)
