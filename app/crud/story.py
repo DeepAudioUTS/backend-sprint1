@@ -34,15 +34,49 @@ def create_story(db: Session, story_in: StoryCreate) -> StoryResponse:
     return StoryResponse.model_validate(story)
 
 
-def update_story_abstract(
-    db: Session, story_id: uuid.UUID, abstract: str
+_abstracts_cache: dict[uuid.UUID, list[str]] = {}
+
+
+def mark_story_abstract_ready(
+    db: Session, story_id: uuid.UUID, abstracts: list[str]
 ) -> None:
-    """Update the story's abstract and advance status to generating_text.
+    """Store generated abstracts in cache and advance status to abstract_ready.
+
+    Abstracts are intentionally not persisted to the DB — they are held in
+    memory until the user selects one via select_abstract().
 
     Args:
         db: Database session.
         story_id: Target story ID.
-        abstract: Generated abstract text.
+        abstracts: List of generated abstract candidates.
+    """
+    _abstracts_cache[story_id] = abstracts
+    story = db.get(Story, story_id)
+    if story is None:
+        return
+    story.status = StoryStatus.ABSTRACT_READY
+    db.commit()
+
+
+def get_cached_abstracts(story_id: uuid.UUID) -> list[str] | None:
+    """Return cached abstract candidates for a story.
+
+    Args:
+        story_id: Target story ID.
+
+    Returns:
+        List of abstract candidates, or None if not yet cached.
+    """
+    return _abstracts_cache.get(story_id)
+
+
+def select_abstract(db: Session, story_id: uuid.UUID, abstract: str) -> None:
+    """Persist the user-selected abstract and advance status to generating_text.
+
+    Args:
+        db: Database session.
+        story_id: Target story ID.
+        abstract: The abstract chosen by the user.
     """
     story = db.get(Story, story_id)
     if story is None:
@@ -156,17 +190,21 @@ def get_story_by_id(
 # External API stub functions (replace with real implementations)
 # ---------------------------------------------------------------------------
 
-def _call_abstract_api(theme: str) -> str:
+def _call_abstract_api(theme: str) -> list[str]:
     """Call the abstract generation API.
 
     Args:
         theme: Story theme.
 
     Returns:
-        Generated abstract text.
+        List of generated abstract candidates.
     """
     # TODO: Replace with actual LLM API call
-    return f"An exciting story about {theme} for children."
+    return [
+        f"An exciting story about {theme} for children.",
+        f"A magical adventure involving {theme}.",
+        f"A brave young hero discovers the wonders of {theme}.",
+    ]
 
 
 def _call_story_api(theme: str, abstract: str) -> tuple[str, str]:
@@ -204,9 +242,12 @@ def _call_audio_api(title: str, content: str) -> str:
 # ---------------------------------------------------------------------------
 
 def generate_abstract_background(story_id: uuid.UUID, theme: str) -> None:
-    """Background task: call the abstract generation API and persist the result.
+    """Background task: generate abstract candidates and store them in cache.
 
-    Status transition: generating_abstract → generating_text
+    Abstracts are not saved to the DB. The client polls GET /stories/{id}/abstracts
+    until status becomes abstract_ready, then the user selects one.
+
+    Status transition: generating_abstract → abstract_ready
 
     Args:
         story_id: ID of the story to update.
@@ -214,8 +255,8 @@ def generate_abstract_background(story_id: uuid.UUID, theme: str) -> None:
     """
     db = SessionLocal()
     try:
-        abstract = _call_abstract_api(theme)
-        update_story_abstract(db, story_id, abstract)
+        abstracts = _call_abstract_api(theme)
+        mark_story_abstract_ready(db, story_id, abstracts)
     finally:
         db.close()
 

@@ -3,6 +3,7 @@ version: '3.8'
 services:
   web:
     build: .
+    container_name: background-api
     ports:
       - "8000:8000"
     volumes:
@@ -12,6 +13,7 @@ services:
 
   db:
     image: postgres:15
+    container_name: database
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
@@ -23,3 +25,8 @@ services:
 
 volumes:
   postgres_data:
+
+networks:
+  shared-net:
+    external: true
+    name: deep-audio-network

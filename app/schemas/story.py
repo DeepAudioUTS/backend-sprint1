@@ -30,6 +30,12 @@ class StoryResponse(BaseModel):
     updated_at: datetime
 
 
+class AbstractSelect(BaseModel):
+    """Request body for selecting an abstract."""
+
+    abstract: str
+
+
 class StoryListResponse(BaseModel):
     """Story list response."""
 

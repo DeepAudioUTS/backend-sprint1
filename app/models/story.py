@@ -13,6 +13,7 @@ class StoryStatus(str, Enum):
     """Story generation status."""
 
     GENERATING_ABSTRACT = "generating_abstract"
+    ABSTRACT_READY = "abstract_ready"
     GENERATING_TEXT = "generating_text"
     GENERATING_AUDIO = "generating_audio"
     COMPLETED = "completed"

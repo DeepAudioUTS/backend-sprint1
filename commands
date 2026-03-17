@@ -1,0 +1,14 @@
+# start docker
+docker compose up -d
+
+# enter the container
+docker compose exec web bash
+
+# test
+docker compose exec web python -m pytest tests/ -v
+
+# make sample db
+docker compose exec web python scripts/seed.py
+
+# reset all
+docker compose down -v

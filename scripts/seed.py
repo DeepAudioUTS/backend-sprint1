@@ -59,6 +59,7 @@ def seed() -> None:
                 child_id=emma.id,
                 theme="space adventure",
                 title="Emma and the Star Pirates",
+                abstract="A brave girl joins a friendly robot captain to collect lost stars and save the galaxy.",
                 content=(
                     "One night, Emma looked up at the sky and noticed a tiny spaceship blinking "
                     "near the moon. She climbed aboard and met Captain Comet, a friendly robot "
@@ -72,6 +73,7 @@ def seed() -> None:
                 child_id=emma.id,
                 theme="forest animals",
                 title="The Sleepy Fox",
+                abstract="A little fox who cannot sleep learns a secret trick from a wise old owl.",
                 content=(
                     "Deep in the Whispering Woods lived a little fox named Finn who could never "
                     "fall asleep. An old owl taught him to count fireflies, and on the very first "
@@ -84,6 +86,7 @@ def seed() -> None:
                 child_id=liam.id,
                 theme="underwater treasure",
                 title="Liam and the Pearl Kingdom",
+                abstract="A boy follows a magical shell's directions to rescue mermaids and restore a kingdom.",
                 content=(
                     "Liam found a golden shell on the beach that whispered directions to the "
                     "Pearl Kingdom beneath the waves. With the help of a clever dolphin he solved "
@@ -94,12 +97,22 @@ def seed() -> None:
                 status=StoryStatus.COMPLETED,
             ),
             Story(
+                child_id=liam.id,
+                theme="magic school",
+                title=None,
+                abstract="A boy discovers a hidden magic school inside his library and must pass a spelling duel.",
+                content=None,
+                audio_url=None,
+                status=StoryStatus.ABSTRACT_READY,
+            ),
+            Story(
                 child_id=noah.id,
                 theme="dinosaur park",
                 title=None,
+                abstract=None,
                 content=None,
                 audio_url=None,
-                status=StoryStatus.GENERATING_TEXT,
+                status=StoryStatus.GENERATING_ABSTRACT,
             ),
         ]
         db.add_all(stories)
@@ -108,7 +121,7 @@ def seed() -> None:
         print("Seed completed successfully.")
         print(f"  Users  : alice@example.com, bob@example.com  (password: password123)")
         print(f"  Children: Emma (5), Liam (8) → Alice | Noah (6) → Bob")
-        print(f"  Stories : {len(stories)} stories created")
+        print(f"  Stories : {len(stories)} stories created (completed, generating_audio, abstract_ready, generating_abstract)")
 
     except Exception:
         db.rollback()
