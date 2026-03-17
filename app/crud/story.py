@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.child import Child
 from app.models.story import Story, StoryStatus
-from app.schemas.story import StoryCreate, StoryResponse, StoryListResponse
+from app.schemas.story import StoryCreate, StoryResponse, StoryListResponse, InProgressStoryResponse
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +160,32 @@ def get_stories_by_user_id(
         limit=limit,
         offset=offset,
     )
+
+
+def get_in_progress_story_by_user_id(
+    db: Session, user_id: uuid.UUID
+) -> InProgressStoryResponse | None:
+    """Retrieve the single in-progress story for a user.
+
+    Args:
+        db: Database session.
+        user_id: Parent user's ID.
+
+    Returns:
+        InProgressStoryResponse if a story is in progress, otherwise None.
+    """
+    stmt = (
+        select(Story)
+        .join(Child, Story.child_id == Child.id)
+        .where(
+            Child.user_id == user_id,
+            Story.status != StoryStatus.COMPLETED,
+        )
+    )
+    story = db.scalars(stmt).first()
+    if story is None:
+        return None
+    return InProgressStoryResponse(story_id=story.id, status=story.status)
 
 
 def get_story_by_id(

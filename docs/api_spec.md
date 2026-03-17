@@ -7,7 +7,9 @@ classDiagram
         +GET /api/v1/children()
         +GET /api/v1/stories(limit, offset)
         +POST /api/v1/stories(child_id, theme)
-        +POST /api/v1/stories/:story_id()/generate_story
-        +DELETE /api/v1/stories/:story_id()
+        +GET /api/v1/stories/in_progress()
         +GET /api/v1/stories/:story_id()
+        +GET /api/v1/stories/:story_id/abstracts()
+        +POST /api/v1/stories/:story_id/select_abstract(abstract)
+        +POST /api/v1/stories/:story_id/generate_story()
     }

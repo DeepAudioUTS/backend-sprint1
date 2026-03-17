@@ -148,6 +148,45 @@ def test_get_story_by_id_unauthenticated_returns_401(
     assert response.status_code == 401
 
 
+# --- GET /api/v1/stories/in_progress ---
+
+def test_get_in_progress_story_returns_story_id_and_status(
+    client: TestClient, db: Session, test_child: Child, auth_headers: dict
+) -> None:
+    story = Story(child_id=test_child.id, theme="volcano", status=StoryStatus.GENERATING_ABSTRACT)
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    response = client.get("/api/v1/stories/in_progress", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["story_id"] == str(story.id)
+    assert data["status"] == "generating_abstract"
+
+
+def test_get_in_progress_story_returns_404_when_none(
+    client: TestClient, test_user: User, auth_headers: dict
+) -> None:
+    response = client.get("/api/v1/stories/in_progress", headers=auth_headers)
+    assert response.status_code == 404
+
+
+def test_get_in_progress_story_ignores_completed_stories(
+    client: TestClient, db: Session, test_child: Child, auth_headers: dict
+) -> None:
+    db.add(Story(child_id=test_child.id, theme="ocean", status=StoryStatus.COMPLETED))
+    db.commit()
+
+    response = client.get("/api/v1/stories/in_progress", headers=auth_headers)
+    assert response.status_code == 404
+
+
+def test_get_in_progress_story_unauthenticated_returns_401(client: TestClient) -> None:
+    response = client.get("/api/v1/stories/in_progress")
+    assert response.status_code == 401
+
+
 # --- GET /api/v1/stories/{story_id}/abstracts ---
 
 def test_get_abstracts_returns_list_when_abstract_ready(

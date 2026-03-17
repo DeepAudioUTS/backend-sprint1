@@ -36,6 +36,13 @@ class AbstractSelect(BaseModel):
     abstract: str
 
 
+class InProgressStoryResponse(BaseModel):
+    """Response for an in-progress story."""
+
+    story_id: uuid.UUID
+    status: StoryStatus
+
+
 class StoryListResponse(BaseModel):
     """Story list response."""
 

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.crud.story import (
     create_story,
     get_cached_abstracts,
+    get_in_progress_story_by_user_id,
     get_stories_by_user_id,
     get_story_by_id,
     mark_story_abstract_ready,
@@ -176,6 +177,46 @@ def test_get_stories_empty_for_unknown_user(db: Session, test_child: Child) -> N
     result = get_stories_by_user_id(db, uuid.uuid4(), limit=20, offset=0)
     assert result.total == 0
     assert result.items == []
+
+
+# --- get_in_progress_story_by_user_id ---
+
+def test_get_in_progress_story_returns_in_progress_story(
+    db: Session, test_user: User, test_child: Child
+) -> None:
+    story = Story(child_id=test_child.id, theme="jungle", status=StoryStatus.GENERATING_ABSTRACT)
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    result = get_in_progress_story_by_user_id(db, test_user.id)
+    assert result is not None
+    assert result.story_id == story.id
+    assert result.status == StoryStatus.GENERATING_ABSTRACT
+
+
+def test_get_in_progress_story_returns_none_when_all_completed(
+    db: Session, test_user: User, test_child: Child
+) -> None:
+    db.add(Story(child_id=test_child.id, theme="ocean", status=StoryStatus.COMPLETED))
+    db.commit()
+
+    assert get_in_progress_story_by_user_id(db, test_user.id) is None
+
+
+def test_get_in_progress_story_returns_none_when_no_stories(
+    db: Session, test_user: User
+) -> None:
+    assert get_in_progress_story_by_user_id(db, test_user.id) is None
+
+
+def test_get_in_progress_story_returns_none_for_unknown_user(
+    db: Session, test_child: Child
+) -> None:
+    db.add(Story(child_id=test_child.id, theme="forest", status=StoryStatus.GENERATING_TEXT))
+    db.commit()
+
+    assert get_in_progress_story_by_user_id(db, uuid.uuid4()) is None
 
 
 # --- get_story_by_id ---

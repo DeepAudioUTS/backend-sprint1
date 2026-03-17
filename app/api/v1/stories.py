@@ -9,6 +9,7 @@ from app.crud.story import (
     generate_abstract_background,
     generate_story_and_audio_background,
     get_cached_abstracts,
+    get_in_progress_story_by_user_id,
     get_stories_by_user_id,
     get_story_by_id,
     select_abstract,
@@ -16,7 +17,7 @@ from app.crud.story import (
 from app.db.database import get_db
 from app.models.story import StoryStatus
 from app.models.user import User
-from app.schemas.story import AbstractSelect, StoryCreate, StoryListResponse, StoryResponse
+from app.schemas.story import AbstractSelect, InProgressStoryResponse, StoryCreate, StoryListResponse, StoryResponse
 
 router = APIRouter()
 
@@ -46,6 +47,24 @@ def post_story(
     """
     story = create_story(db, story_in)
     background_tasks.add_task(generate_abstract_background, story.id, story.theme)
+    return story
+
+
+@router.get("/in_progress", response_model=InProgressStoryResponse)
+def get_in_progress_story(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InProgressStoryResponse:
+    """Return the story_id and status of the currently in-progress story.
+
+    Returns 404 if no story is in progress.
+    """
+    story = get_in_progress_story_by_user_id(db, current_user.id)
+    if story is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No story in progress",
+        )
     return story
 
 
