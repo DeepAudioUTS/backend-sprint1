@@ -3,15 +3,18 @@ import uuid
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
+from app.db.database import SessionLocal
 from app.models.child import Child
 from app.models.story import Story, StoryStatus
 from app.schemas.story import StoryCreate, StoryResponse, StoryListResponse
 
 
-def create_story(db: Session, story_in: StoryCreate) -> StoryResponse:
-    """Create a new story.
+# ---------------------------------------------------------------------------
+# DB helper functions
+# ---------------------------------------------------------------------------
 
-    Status is initialized to generating_text.
+def create_story(db: Session, story_in: StoryCreate) -> StoryResponse:
+    """Create a new story record with status generating_abstract.
 
     Args:
         db: Database session.
@@ -23,12 +26,68 @@ def create_story(db: Session, story_in: StoryCreate) -> StoryResponse:
     story = Story(
         child_id=story_in.child_id,
         theme=story_in.theme,
-        status=StoryStatus.GENERATING_TEXT,
+        status=StoryStatus.GENERATING_ABSTRACT,
     )
     db.add(story)
     db.commit()
     db.refresh(story)
     return StoryResponse.model_validate(story)
+
+
+def update_story_abstract(
+    db: Session, story_id: uuid.UUID, abstract: str
+) -> None:
+    """Update the story's abstract and advance status to generating_text.
+
+    Args:
+        db: Database session.
+        story_id: Target story ID.
+        abstract: Generated abstract text.
+    """
+    story = db.get(Story, story_id)
+    if story is None:
+        return
+    story.abstract = abstract
+    story.status = StoryStatus.GENERATING_TEXT
+    db.commit()
+
+
+def update_story_content(
+    db: Session, story_id: uuid.UUID, title: str, content: str
+) -> None:
+    """Update the story's title and content, advance status to generating_audio.
+
+    Args:
+        db: Database session.
+        story_id: Target story ID.
+        title: Generated story title.
+        content: Generated story body text.
+    """
+    story = db.get(Story, story_id)
+    if story is None:
+        return
+    story.title = title
+    story.content = content
+    story.status = StoryStatus.GENERATING_AUDIO
+    db.commit()
+
+
+def update_story_audio(
+    db: Session, story_id: uuid.UUID, audio_url: str
+) -> None:
+    """Update the story's audio URL and set status to completed.
+
+    Args:
+        db: Database session.
+        story_id: Target story ID.
+        audio_url: URL of the generated audio file.
+    """
+    story = db.get(Story, story_id)
+    if story is None:
+        return
+    story.audio_url = audio_url
+    story.status = StoryStatus.COMPLETED
+    db.commit()
 
 
 def get_stories_by_user_id(
@@ -91,3 +150,97 @@ def get_story_by_id(
     if story is None:
         return None
     return StoryResponse.model_validate(story)
+
+
+# ---------------------------------------------------------------------------
+# External API stub functions (replace with real implementations)
+# ---------------------------------------------------------------------------
+
+def _call_abstract_api(theme: str) -> str:
+    """Call the abstract generation API.
+
+    Args:
+        theme: Story theme.
+
+    Returns:
+        Generated abstract text.
+    """
+    # TODO: Replace with actual LLM API call
+    return f"An exciting story about {theme} for children."
+
+
+def _call_story_api(theme: str, abstract: str) -> tuple[str, str]:
+    """Call the story generation API.
+
+    Args:
+        theme: Story theme.
+        abstract: Previously generated abstract.
+
+    Returns:
+        Tuple of (title, content).
+    """
+    # TODO: Replace with actual LLM API call
+    title = f"The Adventure of {theme.capitalize()}"
+    content = f"Once upon a time, {abstract} The end."
+    return title, content
+
+
+def _call_audio_api(title: str, content: str) -> str:
+    """Call the audio generation API.
+
+    Args:
+        title: Story title.
+        content: Story body text.
+
+    Returns:
+        URL of the generated audio file.
+    """
+    # TODO: Replace with actual audio generation API call
+    return f"https://audio.example.com/stories/{title.replace(' ', '_')}.mp3"
+
+
+# ---------------------------------------------------------------------------
+# Background task workers
+# ---------------------------------------------------------------------------
+
+def generate_abstract_background(story_id: uuid.UUID, theme: str) -> None:
+    """Background task: call the abstract generation API and persist the result.
+
+    Status transition: generating_abstract → generating_text
+
+    Args:
+        story_id: ID of the story to update.
+        theme: Story theme passed to the abstract API.
+    """
+    db = SessionLocal()
+    try:
+        abstract = _call_abstract_api(theme)
+        update_story_abstract(db, story_id, abstract)
+    finally:
+        db.close()
+
+
+def generate_story_and_audio_background(story_id: uuid.UUID) -> None:
+    """Background task: sequentially call story and audio generation APIs.
+
+    Status transitions:
+        generating_text → (story API) → generating_audio → (audio API) → completed
+
+    Args:
+        story_id: ID of the story to process.
+    """
+    db = SessionLocal()
+    try:
+        story = db.get(Story, story_id)
+        if story is None:
+            return
+
+        # Step 1: generate story text
+        title, content = _call_story_api(story.theme, story.abstract or "")
+        update_story_content(db, story_id, title, content)
+
+        # Step 2: generate audio
+        audio_url = _call_audio_api(title, content)
+        update_story_audio(db, story_id, audio_url)
+    finally:
+        db.close()

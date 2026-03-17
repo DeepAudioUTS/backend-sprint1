@@ -26,9 +26,10 @@ erDiagram
         uuid child_id FK "child id"
         string theme "story theme"
         string title "story title"
+        text abstract "story abstract"
         text content "geterated story"
         string audio_url "audio file url"
-        string status "process (generating_text, generating_audio, completed)"
+        string status "process (generating_abstruct, generating_text, generating_audio, completed)"
         datetime created_at "created datetime"
         datetime updated_at "updated datetime"
     }

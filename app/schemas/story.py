@@ -22,6 +22,7 @@ class StoryResponse(BaseModel):
     child_id: uuid.UUID
     theme: str
     title: str | None
+    abstract: str | None
     content: str | None
     audio_url: str | None
     status: StoryStatus

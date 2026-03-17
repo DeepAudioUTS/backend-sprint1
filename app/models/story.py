@@ -12,6 +12,7 @@ from app.db.database import Base
 class StoryStatus(str, Enum):
     """Story generation status."""
 
+    GENERATING_ABSTRACT = "generating_abstract"
     GENERATING_TEXT = "generating_text"
     GENERATING_AUDIO = "generating_audio"
     COMPLETED = "completed"
@@ -42,6 +43,7 @@ class Story(Base):
     )
     theme: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
+    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     audio_url: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(
