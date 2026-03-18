@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.deps import get_current_user
 from app.crud.story import (
     create_story,
+    delete_story,
     generate_abstract_background,
     generate_story_and_audio_background,
     get_cached_abstracts,
@@ -153,6 +154,21 @@ def generate_story(
         )
     background_tasks.add_task(generate_story_and_audio_background, story_id)
     return story
+
+
+@router.delete("/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_story_endpoint(
+    story_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Delete a story by ID (stories of other users cannot be deleted)."""
+    deleted = delete_story(db, story_id=story_id, user_id=current_user.id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found",
+        )
 
 
 @router.get("/{story_id}", response_model=StoryResponse)

@@ -1,4 +1,5 @@
 import uuid
+import time
 
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -188,6 +189,32 @@ def get_in_progress_story_by_user_id(
     return InProgressStoryResponse(story_id=story.id, status=story.status)
 
 
+def delete_story(
+    db: Session, story_id: uuid.UUID, user_id: uuid.UUID
+) -> bool:
+    """Delete a story by ID (with ownership check).
+
+    Args:
+        db: Database session.
+        story_id: ID of the story to delete.
+        user_id: ID of the requesting user.
+
+    Returns:
+        True if deleted, False if not found or unauthorized.
+    """
+    stmt = (
+        select(Story)
+        .join(Child, Story.child_id == Child.id)
+        .where(Story.id == story_id, Child.user_id == user_id)
+    )
+    story = db.scalars(stmt).first()
+    if story is None:
+        return False
+    db.delete(story)
+    db.commit()
+    return True
+
+
 def get_story_by_id(
     db: Session, story_id: uuid.UUID, user_id: uuid.UUID
 ) -> StoryResponse | None:
@@ -226,6 +253,7 @@ def _call_abstract_api(theme: str) -> list[str]:
         List of generated abstract candidates.
     """
     # TODO: Replace with actual LLM API call
+    time.sleep(5)
     return [
         f"An exciting story about {theme} for children.",
         f"A magical adventure involving {theme}.",
@@ -244,6 +272,7 @@ def _call_story_api(theme: str, abstract: str) -> tuple[str, str]:
         Tuple of (title, content).
     """
     # TODO: Replace with actual LLM API call
+    time.sleep(5)
     title = f"The Adventure of {theme.capitalize()}"
     content = f"Once upon a time, {abstract} The end."
     return title, content
@@ -260,6 +289,7 @@ def _call_audio_api(title: str, content: str) -> str:
         URL of the generated audio file.
     """
     # TODO: Replace with actual audio generation API call
+    time.sleep(5)
     return f"https://audio.example.com/stories/{title.replace(' ', '_')}.mp3"
 
 

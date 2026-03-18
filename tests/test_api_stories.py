@@ -331,3 +331,50 @@ def test_generate_story_unauthenticated_returns_401(
 
     response = client.post(f"/api/v1/stories/{story.id}/generate_story")
     assert response.status_code == 401
+
+
+# --- DELETE /api/v1/stories/{story_id} ---
+
+def test_delete_story_returns_204(
+    client: TestClient, db: Session, test_child: Child, auth_headers: dict
+) -> None:
+    story = Story(child_id=test_child.id, theme="ocean", status=StoryStatus.COMPLETED)
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    response = client.delete(f"/api/v1/stories/{story.id}", headers=auth_headers)
+    assert response.status_code == 204
+
+
+def test_delete_story_actually_removes_story(
+    client: TestClient, db: Session, test_child: Child, auth_headers: dict
+) -> None:
+    story = Story(child_id=test_child.id, theme="forest", status=StoryStatus.COMPLETED)
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    client.delete(f"/api/v1/stories/{story.id}", headers=auth_headers)
+
+    response = client.get(f"/api/v1/stories/{story.id}", headers=auth_headers)
+    assert response.status_code == 404
+
+
+def test_delete_story_returns_404_for_unknown_id(
+    client: TestClient, auth_headers: dict
+) -> None:
+    response = client.delete(f"/api/v1/stories/{uuid.uuid4()}", headers=auth_headers)
+    assert response.status_code == 404
+
+
+def test_delete_story_unauthenticated_returns_401(
+    client: TestClient, db: Session, test_child: Child
+) -> None:
+    story = Story(child_id=test_child.id, theme="theme", status=StoryStatus.COMPLETED)
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    response = client.delete(f"/api/v1/stories/{story.id}")
+    assert response.status_code == 401

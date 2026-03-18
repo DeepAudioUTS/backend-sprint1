@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.crud.story import (
     create_story,
+    delete_story,
     get_cached_abstracts,
     get_in_progress_story_by_user_id,
     get_stories_by_user_id,
@@ -246,3 +247,32 @@ def test_get_story_by_id_wrong_user_returns_none(db: Session, test_child: Child)
     db.refresh(story)
 
     assert get_story_by_id(db, story.id, uuid.uuid4()) is None
+
+
+# --- delete_story ---
+
+def test_delete_story_removes_story_and_returns_true(
+    db: Session, test_user: User, test_child: Child
+) -> None:
+    story = Story(child_id=test_child.id, theme="jungle", status=StoryStatus.COMPLETED)
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    result = delete_story(db, story.id, test_user.id)
+    assert result is True
+    assert db.get(Story, story.id) is None
+
+
+def test_delete_story_returns_false_for_unknown_id(db: Session, test_user: User) -> None:
+    assert delete_story(db, uuid.uuid4(), test_user.id) is False
+
+
+def test_delete_story_returns_false_for_wrong_user(db: Session, test_child: Child) -> None:
+    story = Story(child_id=test_child.id, theme="theme", status=StoryStatus.COMPLETED)
+    db.add(story)
+    db.commit()
+    db.refresh(story)
+
+    assert delete_story(db, story.id, uuid.uuid4()) is False
+    assert db.get(Story, story.id) is not None

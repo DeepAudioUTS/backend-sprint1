@@ -70,19 +70,6 @@ def seed() -> None:
                 status=StoryStatus.COMPLETED,
             ),
             Story(
-                child_id=emma.id,
-                theme="forest animals",
-                title="The Sleepy Fox",
-                abstract="A little fox who cannot sleep learns a secret trick from a wise old owl.",
-                content=(
-                    "Deep in the Whispering Woods lived a little fox named Finn who could never "
-                    "fall asleep. An old owl taught him to count fireflies, and on the very first "
-                    "try Finn drifted off dreaming of golden meadows."
-                ),
-                audio_url=None,
-                status=StoryStatus.GENERATING_AUDIO,
-            ),
-            Story(
                 child_id=liam.id,
                 theme="underwater treasure",
                 title="Liam and the Pearl Kingdom",
@@ -95,24 +82,6 @@ def seed() -> None:
                 ),
                 audio_url="https://storage.example.com/audio/liam-pearl-kingdom.mp3",
                 status=StoryStatus.COMPLETED,
-            ),
-            Story(
-                child_id=liam.id,
-                theme="magic school",
-                title=None,
-                abstract="A boy discovers a hidden magic school inside his library and must pass a spelling duel.",
-                content=None,
-                audio_url=None,
-                status=StoryStatus.ABSTRACT_READY,
-            ),
-            Story(
-                child_id=noah.id,
-                theme="dinosaur park",
-                title=None,
-                abstract=None,
-                content=None,
-                audio_url=None,
-                status=StoryStatus.GENERATING_ABSTRACT,
             ),
         ]
         db.add_all(stories)
