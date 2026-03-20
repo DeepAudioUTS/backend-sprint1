@@ -1,9 +1,10 @@
 import uuid
-import time
 
+import httpx
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.child import Child
 from app.models.story import Story, StoryStatus
@@ -252,7 +253,13 @@ def _call_abstract_api(theme: str) -> list[str]:
     Returns:
         List of generated abstract candidates.
     """
-    # TODO: Replace with actual LLM API call
+
+    """
+    url = f"{settings.LLM_API_URL}/abstract/api"
+    response = httpx.post(url, json={"theme": theme})
+    response.raise_for_status()
+    return response.json()
+    """
     time.sleep(5)
     return [
         f"An exciting story about {theme} for children.",
@@ -278,19 +285,25 @@ def _call_story_api(theme: str, abstract: str) -> tuple[str, str]:
     return title, content
 
 
-def _call_audio_api(title: str, content: str) -> str:
+def _call_audio_api(story_id: str, content: str) -> str:
     """Call the audio generation API.
 
     Args:
-        title: Story title.
+        story_id: Story title.
         content: Story body text.
 
     Returns:
         URL of the generated audio file.
     """
     # TODO: Replace with actual audio generation API call
+    """
+    url = f"{settings.TTS_API_URL}/audio/generate"
+    response = httpx.post(url, json={"text": content, story_id: story_id, })
+    response.raise_for_status()
+    return response.json()["audio_url"]
+    """
     time.sleep(5)
-    return f"https://audio.example.com/stories/{title.replace(' ', '_')}.mp3"
+    return f"https://audio.example.com/stories/{story_id.replace(' ', '_')}.mp3"
 
 
 # ---------------------------------------------------------------------------
