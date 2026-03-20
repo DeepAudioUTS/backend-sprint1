@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "lO/H+vtMjLZHH/INONzByM4MZq/msOKFxc2JIV7DUso="
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
-    TTS_API_URL: str = "http://tts-api:8000"
+    TTS_API_URL: str = "http://xtts-api:8080"
     LLM_API_URL: str = "http://llm-api:8000"
 
     class Config:

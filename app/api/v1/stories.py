@@ -1,17 +1,21 @@
 import uuid
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
 from app.crud.story import (
     create_story,
     delete_story,
+    fetch_audio_bytes,
     generate_abstract_background,
     generate_story_and_audio_background,
     get_cached_abstracts,
     get_in_progress_story_by_user_id,
     get_stories_by_user_id,
+    get_story_audio_url,
     get_story_by_id,
     select_abstract,
 )
@@ -154,6 +158,35 @@ def generate_story(
         )
     background_tasks.add_task(generate_story_and_audio_background, story_id)
     return story
+
+
+@router.get("/{story_id}/audio")
+def get_story_audio(
+    story_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Fetch and return the audio file for a completed story.
+
+    Retrieves the audio_url from the DB, proxies the request to the TTS service,
+    and streams the audio bytes back to the client.
+
+    Returns 404 if the story is not found or audio has not been generated yet.
+    """
+    audio_url = get_story_audio_url(db, story_id=story_id, user_id=current_user.id)
+    if audio_url is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Story not found or audio not yet generated",
+        )
+    try:
+        audio_bytes, content_type = fetch_audio_bytes(audio_url)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch audio from TTS service: {e.response.status_code}",
+        )
+    return Response(content=audio_bytes, media_type=content_type)
 
 
 @router.delete("/{story_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -196,6 +196,9 @@ def delete_story(
 ) -> bool:
     """Delete a story by ID (with ownership check).
 
+    If the story has an audio_url, the corresponding audio is also deleted
+    from the TTS service before removing the DB record.
+
     Args:
         db: Database session.
         story_id: ID of the story to delete.
@@ -212,9 +215,56 @@ def delete_story(
     story = db.scalars(stmt).first()
     if story is None:
         return False
+    if story.audio_url:
+        url = f"{settings.TTS_API_URL}{story.audio_url}"
+        httpx.delete(url)
     db.delete(story)
     db.commit()
     return True
+
+
+def get_story_audio_url(
+    db: Session, story_id: uuid.UUID, user_id: uuid.UUID
+) -> str | None:
+    """Return the audio_url for a story (with ownership check).
+
+    Args:
+        db: Database session.
+        story_id: ID of the story.
+        user_id: ID of the requesting user.
+
+    Returns:
+        audio_url string, or None if not found / not yet generated.
+    """
+    stmt = (
+        select(Story)
+        .join(Child, Story.child_id == Child.id)
+        .where(Story.id == story_id, Child.user_id == user_id)
+    )
+    story = db.scalars(stmt).first()
+    if story is None:
+        return None
+    return story.audio_url
+
+
+def fetch_audio_bytes(audio_url: str) -> tuple[bytes, str]:
+    """Fetch audio data from the TTS service.
+
+    Args:
+        audio_url: Path returned by the TTS API (e.g. "/audio/files/xxx.mp3").
+                   Combined with TTS_API_URL to form the full request URL.
+
+    Returns:
+        Tuple of (audio bytes, content_type).
+
+    Raises:
+        httpx.HTTPStatusError: If the upstream request fails.
+    """
+    url = f"{settings.TTS_API_URL}{audio_url}"
+    response = httpx.get(url)
+    response.raise_for_status()
+    content_type = response.headers.get("content-type", "audio/mpeg")
+    return response.content, content_type
 
 
 def get_story_by_id(
@@ -296,15 +346,10 @@ def _call_audio_api(story_id: str, content: str) -> str:
     Returns:
         URL of the generated audio file.
     """
-    # TODO: Replace with actual audio generation API call
-    """
     url = f"{settings.TTS_API_URL}/audio/generate"
     response = httpx.post(url, json={"text": content, story_id: story_id, })
     response.raise_for_status()
     return response.json()["audio_url"]
-    """
-    time.sleep(5)
-    return f"https://audio.example.com/stories/{story_id.replace(' ', '_')}.mp3"
 
 
 # ---------------------------------------------------------------------------
