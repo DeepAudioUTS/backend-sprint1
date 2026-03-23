@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.database import SessionLocal
 from app.models.child import Child
-from app.models.story import Story, StoryStatus
+from app.models.story import Story
+from app.models.story_draft import StoryDraft, DraftStatus, get_draft_status
 from app.schemas.story import StoryCreate, StoryResponse, StoryListResponse, InProgressStoryResponse
 
 
@@ -16,115 +17,130 @@ from app.schemas.story import StoryCreate, StoryResponse, StoryListResponse, InP
 # DB helper functions
 # ---------------------------------------------------------------------------
 
-def create_story(db: Session, story_in: StoryCreate) -> StoryResponse:
-    """Create a new story record with status generating_abstract.
+def get_draft_by_id(
+    db: Session, draft_id: uuid.UUID, user_id: uuid.UUID
+) -> StoryDraft | None:
+    """Return a StoryDraft with ownership check."""
+    return db.scalars(
+        select(StoryDraft)
+        .join(Child, StoryDraft.child_id == Child.id)
+        .where(StoryDraft.id == draft_id, Child.user_id == user_id)
+    ).first()
+
+
+def create_story(db: Session, story_in: StoryCreate) -> InProgressStoryResponse:
+    """Create a StoryDraft to begin the story generation pipeline.
+
+    The Story record is not created here — it is created only when audio
+    generation completes (see update_story_audio).
 
     Args:
         db: Database session.
         story_in: Story creation request (child_id, theme).
 
     Returns:
-        Response object of the created story.
+        InProgressStoryResponse with draft_id and initial status.
     """
-    story = Story(
+    draft = StoryDraft(
         child_id=story_in.child_id,
         theme=story_in.theme,
-        status=StoryStatus.GENERATING_ABSTRACT,
     )
-    db.add(story)
+    db.add(draft)
     db.commit()
-    db.refresh(story)
-    return StoryResponse.model_validate(story)
-
-
-_abstracts_cache: dict[uuid.UUID, list[str]] = {}
+    db.refresh(draft)
+    return InProgressStoryResponse(draft_id=draft.id, status=DraftStatus.GENERATING_ABSTRACT)
 
 
 def mark_story_abstract_ready(
-    db: Session, story_id: uuid.UUID, abstracts: list[str]
+    db: Session, draft_id: uuid.UUID, abstracts: list[str]
 ) -> None:
-    """Store generated abstracts in cache and advance status to abstract_ready.
+    """Store generated abstract candidates on the draft.
 
-    Abstracts are intentionally not persisted to the DB — they are held in
-    memory until the user selects one via select_abstract().
+    Draft state transition: GENERATING_ABSTRACT → ABSTRACT_READY
 
     Args:
         db: Database session.
-        story_id: Target story ID.
+        draft_id: Target draft ID.
         abstracts: List of generated abstract candidates.
     """
-    _abstracts_cache[story_id] = abstracts
-    story = db.get(Story, story_id)
-    if story is None:
+    draft = db.get(StoryDraft, draft_id)
+    if draft is None:
         return
-    story.status = StoryStatus.ABSTRACT_READY
+    draft.abstracts = abstracts
     db.commit()
 
 
-def get_cached_abstracts(story_id: uuid.UUID) -> list[str] | None:
-    """Return cached abstract candidates for a story.
+def select_abstract(db: Session, draft_id: uuid.UUID, abstract: str) -> None:
+    """Persist the user-selected abstract on the draft.
 
-    Args:
-        story_id: Target story ID.
-
-    Returns:
-        List of abstract candidates, or None if not yet cached.
-    """
-    return _abstracts_cache.get(story_id)
-
-
-def select_abstract(db: Session, story_id: uuid.UUID, abstract: str) -> None:
-    """Persist the user-selected abstract and advance status to generating_text.
+    Draft state transition: ABSTRACT_READY → GENERATING_TEXT
 
     Args:
         db: Database session.
-        story_id: Target story ID.
+        draft_id: Target draft ID.
         abstract: The abstract chosen by the user.
     """
-    story = db.get(Story, story_id)
-    if story is None:
+    draft = db.get(StoryDraft, draft_id)
+    if draft is None:
         return
-    story.abstract = abstract
-    story.status = StoryStatus.GENERATING_TEXT
+    draft.selected_abstract = abstract
     db.commit()
 
 
 def update_story_content(
-    db: Session, story_id: uuid.UUID, title: str, content: str
+    db: Session, draft_id: uuid.UUID, title: str, content: str
 ) -> None:
-    """Update the story's title and content, advance status to generating_audio.
+    """Update the draft's title and generated text.
+
+    Draft state transition: GENERATING_TEXT → GENERATING_AUDIO
 
     Args:
         db: Database session.
-        story_id: Target story ID.
+        draft_id: Target draft ID.
         title: Generated story title.
         content: Generated story body text.
     """
-    story = db.get(Story, story_id)
-    if story is None:
+    draft = db.get(StoryDraft, draft_id)
+    if draft is None:
         return
-    story.title = title
-    story.content = content
-    story.status = StoryStatus.GENERATING_AUDIO
+    draft.title = title
+    draft.generated_text = content
     db.commit()
 
 
 def update_story_audio(
-    db: Session, story_id: uuid.UUID, audio_url: str
-) -> None:
-    """Update the story's audio URL and set status to completed.
+    db: Session, draft_id: uuid.UUID, audio_url: str
+) -> Story | None:
+    """Create the final Story record from the draft, then delete the draft.
+
+    This is the only place where a Story is created. All data accumulated
+    in the draft is copied to the new Story record.
 
     Args:
         db: Database session.
-        story_id: Target story ID.
+        draft_id: Target draft ID.
         audio_url: URL of the generated audio file.
+
+    Returns:
+        The newly created Story, or None if the draft was not found.
     """
-    story = db.get(Story, story_id)
-    if story is None:
-        return
-    story.audio_url = audio_url
-    story.status = StoryStatus.COMPLETED
+    draft = db.get(StoryDraft, draft_id)
+    if draft is None:
+        return None
+    story = Story(
+        child_id=draft.child_id,
+        theme=draft.theme,
+        title=draft.title,
+        abstracts=draft.abstracts,
+        abstract=draft.selected_abstract,
+        content=draft.generated_text,
+        audio_url=audio_url,
+    )
+    db.add(story)
+    db.delete(draft)
     db.commit()
+    db.refresh(story)
+    return story
 
 
 def get_stories_by_user_id(
@@ -132,7 +148,7 @@ def get_stories_by_user_id(
 ) -> StoryListResponse:
     """Retrieve a paginated list of stories associated with a user ID.
 
-    Returns all stories owned by the user via their children.
+    Returns all non-deleted stories owned by the user via their children.
 
     Args:
         db: Database session.
@@ -146,7 +162,7 @@ def get_stories_by_user_id(
     base_stmt = (
         select(Story)
         .join(Child, Story.child_id == Child.id)
-        .where(Child.user_id == user_id)
+        .where(Child.user_id == user_id, Story.is_deleted == False)  # noqa: E712
     )
 
     total: int = db.scalar(
@@ -168,36 +184,32 @@ def get_stories_by_user_id(
 def get_in_progress_story_by_user_id(
     db: Session, user_id: uuid.UUID
 ) -> InProgressStoryResponse | None:
-    """Retrieve the single in-progress story for a user.
+    """Retrieve the single in-progress story for a user via their active StoryDraft.
 
     Args:
         db: Database session.
         user_id: Parent user's ID.
 
     Returns:
-        InProgressStoryResponse if a story is in progress, otherwise None.
+        InProgressStoryResponse with draft_id and inferred status, or None.
     """
-    stmt = (
-        select(Story)
-        .join(Child, Story.child_id == Child.id)
-        .where(
-            Child.user_id == user_id,
-            Story.status != StoryStatus.COMPLETED,
-        )
-    )
-    story = db.scalars(stmt).first()
-    if story is None:
+    draft = db.scalars(
+        select(StoryDraft)
+        .join(Child, StoryDraft.child_id == Child.id)
+        .where(Child.user_id == user_id)
+    ).first()
+    if draft is None:
         return None
-    return InProgressStoryResponse(story_id=story.id, status=story.status)
+    return InProgressStoryResponse(draft_id=draft.id, status=get_draft_status(draft))
 
 
 def delete_story(
     db: Session, story_id: uuid.UUID, user_id: uuid.UUID
 ) -> bool:
-    """Delete a story by ID (with ownership check).
+    """Soft-delete a story by ID (with ownership check).
 
-    If the story has an audio_url, the corresponding audio is also deleted
-    from the TTS service before removing the DB record.
+    Sets is_deleted=True so the record is retained for data analysis
+    but hidden from all user-facing queries.
 
     Args:
         db: Database session.
@@ -205,20 +217,17 @@ def delete_story(
         user_id: ID of the requesting user.
 
     Returns:
-        True if deleted, False if not found or unauthorized.
+        True if hidden, False if not found or unauthorized.
     """
     stmt = (
         select(Story)
         .join(Child, Story.child_id == Child.id)
-        .where(Story.id == story_id, Child.user_id == user_id)
+        .where(Story.id == story_id, Child.user_id == user_id, Story.is_deleted == False)  # noqa: E712
     )
     story = db.scalars(stmt).first()
     if story is None:
         return False
-    if story.audio_url:
-        url = f"{settings.TTS_API_URL}{story.audio_url}"
-        httpx.delete(url)
-    db.delete(story)
+    story.is_deleted = True
     db.commit()
     return True
 
@@ -226,20 +235,11 @@ def delete_story(
 def get_story_audio_url(
     db: Session, story_id: uuid.UUID, user_id: uuid.UUID
 ) -> str | None:
-    """Return the audio_url for a story (with ownership check).
-
-    Args:
-        db: Database session.
-        story_id: ID of the story.
-        user_id: ID of the requesting user.
-
-    Returns:
-        audio_url string, or None if not found / not yet generated.
-    """
+    """Return the audio_url for a story (with ownership check)."""
     stmt = (
         select(Story)
         .join(Child, Story.child_id == Child.id)
-        .where(Story.id == story_id, Child.user_id == user_id)
+        .where(Story.id == story_id, Child.user_id == user_id, Story.is_deleted == False)  # noqa: E712
     )
     story = db.scalars(stmt).first()
     if story is None:
@@ -248,18 +248,7 @@ def get_story_audio_url(
 
 
 def fetch_audio_bytes(audio_url: str) -> tuple[bytes, str]:
-    """Fetch audio data from the TTS service.
-
-    Args:
-        audio_url: Path returned by the TTS API (e.g. "/audio/files/xxx.mp3").
-                   Combined with TTS_API_URL to form the full request URL.
-
-    Returns:
-        Tuple of (audio bytes, content_type).
-
-    Raises:
-        httpx.HTTPStatusError: If the upstream request fails.
-    """
+    """Fetch audio data from the TTS service."""
     url = f"{settings.TTS_API_URL}{audio_url}"
     response = httpx.get(url)
     response.raise_for_status()
@@ -270,20 +259,11 @@ def fetch_audio_bytes(audio_url: str) -> tuple[bytes, str]:
 def get_story_by_id(
     db: Session, story_id: uuid.UUID, user_id: uuid.UUID
 ) -> StoryResponse | None:
-    """Retrieve a single story by ID (with ownership check).
-
-    Args:
-        db: Database session.
-        story_id: ID of the story to retrieve.
-        user_id: ID of the requesting user. Stories belonging to other users cannot be retrieved.
-
-    Returns:
-        Story response object, or None if not found or unauthorized.
-    """
+    """Retrieve a single story by ID (with ownership check)."""
     stmt = (
         select(Story)
         .join(Child, Story.child_id == Child.id)
-        .where(Story.id == story_id, Child.user_id == user_id)
+        .where(Story.id == story_id, Child.user_id == user_id, Story.is_deleted == False)  # noqa: E712
     )
     story = db.scalars(stmt).first()
     if story is None:
@@ -296,15 +276,7 @@ def get_story_by_id(
 # ---------------------------------------------------------------------------
 
 def _call_abstract_api(theme: str) -> list[str]:
-    """Call the abstract generation API.
-
-    Args:
-        theme: Story theme.
-
-    Returns:
-        List of generated abstract candidates.
-    """
-
+    """Call the abstract generation API."""
     """
     url = f"{settings.LLM_API_URL}/abstract/api"
     response = httpx.post(url, json={"theme": theme})
@@ -320,15 +292,7 @@ def _call_abstract_api(theme: str) -> list[str]:
 
 
 def _call_story_api(theme: str, abstract: str) -> tuple[str, str]:
-    """Call the story generation API.
-
-    Args:
-        theme: Story theme.
-        abstract: Previously generated abstract.
-
-    Returns:
-        Tuple of (title, content).
-    """
+    """Call the story generation API."""
     # TODO: Replace with actual LLM API call
     time.sleep(5)
     title = f"The Adventure of {theme.capitalize()}"
@@ -336,18 +300,10 @@ def _call_story_api(theme: str, abstract: str) -> tuple[str, str]:
     return title, content
 
 
-def _call_audio_api(story_id: str, content: str) -> str:
-    """Call the audio generation API.
-
-    Args:
-        story_id: Story title.
-        content: Story body text.
-
-    Returns:
-        URL of the generated audio file.
-    """
+def _call_audio_api(title: str, content: str) -> str:
+    """Call the audio generation API."""
     url = f"{settings.TTS_API_URL}/audio/generate"
-    response = httpx.post(url, json={"text": content, story_id: story_id, })
+    response = httpx.post(url, json={"text": content, "title": title})
     response.raise_for_status()
     return response.json()["audio_url"]
 
@@ -356,47 +312,44 @@ def _call_audio_api(story_id: str, content: str) -> str:
 # Background task workers
 # ---------------------------------------------------------------------------
 
-def generate_abstract_background(story_id: uuid.UUID, theme: str) -> None:
-    """Background task: generate abstract candidates and store them in cache.
+def generate_abstract_background(draft_id: uuid.UUID, theme: str) -> None:
+    """Background task: generate abstract candidates and store them on the draft.
 
-    Abstracts are not saved to the DB. The client polls GET /stories/{id}/abstracts
-    until status becomes abstract_ready, then the user selects one.
-
-    Status transition: generating_abstract → abstract_ready
+    Draft state transition: GENERATING_ABSTRACT → ABSTRACT_READY
 
     Args:
-        story_id: ID of the story to update.
+        draft_id: ID of the StoryDraft to update.
         theme: Story theme passed to the abstract API.
     """
     db = SessionLocal()
     try:
         abstracts = _call_abstract_api(theme)
-        mark_story_abstract_ready(db, story_id, abstracts)
+        mark_story_abstract_ready(db, draft_id, abstracts)
     finally:
         db.close()
 
 
-def generate_story_and_audio_background(story_id: uuid.UUID) -> None:
-    """Background task: sequentially call story and audio generation APIs.
+def generate_story_and_audio_background(draft_id: uuid.UUID) -> None:
+    """Background task: generate story text, then audio, then create the Story record.
 
-    Status transitions:
-        generating_text → (story API) → generating_audio → (audio API) → completed
+    Draft state transitions:
+        GENERATING_TEXT → (story API) → GENERATING_AUDIO → (audio API) → Story created, draft deleted
 
     Args:
-        story_id: ID of the story to process.
+        draft_id: ID of the StoryDraft to process.
     """
     db = SessionLocal()
     try:
-        story = db.get(Story, story_id)
-        if story is None:
+        draft = db.get(StoryDraft, draft_id)
+        if draft is None:
             return
 
         # Step 1: generate story text
-        title, content = _call_story_api(story.theme, story.abstract or "")
-        update_story_content(db, story_id, title, content)
+        title, content = _call_story_api(draft.theme, draft.selected_abstract or "")
+        update_story_content(db, draft_id, title, content)
 
-        # Step 2: generate audio
+        # Step 2: generate audio, then create Story and delete draft
         audio_url = _call_audio_api(title, content)
-        update_story_audio(db, story_id, audio_url)
+        update_story_audio(db, draft_id, audio_url)
     finally:
         db.close()

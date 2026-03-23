@@ -39,3 +39,4 @@ class Child(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="children")  # noqa: F821
     stories: Mapped[list["Story"]] = relationship("Story", back_populates="child")  # noqa: F821
+    story_draft: Mapped["StoryDraft | None"] = relationship("StoryDraft", back_populates="child", uselist=False)  # noqa: F821

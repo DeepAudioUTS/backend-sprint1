@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.story import StoryStatus
+from app.models.story_draft import DraftStatus
 
 
 class StoryCreate(BaseModel):
@@ -14,7 +14,7 @@ class StoryCreate(BaseModel):
 
 
 class StoryResponse(BaseModel):
-    """Story response."""
+    """Story response for completed stories."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -22,10 +22,10 @@ class StoryResponse(BaseModel):
     child_id: uuid.UUID
     theme: str
     title: str | None
+    abstracts: list[str] | None
     abstract: str | None
     content: str | None
     audio_url: str | None
-    status: StoryStatus
     created_at: datetime
     updated_at: datetime
 
@@ -37,10 +37,14 @@ class AbstractSelect(BaseModel):
 
 
 class InProgressStoryResponse(BaseModel):
-    """Response for an in-progress story."""
+    """Response for an in-progress story.
 
-    story_id: uuid.UUID
-    status: StoryStatus
+    draft_id is the StoryDraft ID used for all in-progress operations.
+    Status is inferred from the draft's field population.
+    """
+
+    draft_id: uuid.UUID
+    status: DraftStatus
 
 
 class StoryListResponse(BaseModel):

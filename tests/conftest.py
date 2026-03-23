@@ -16,6 +16,7 @@ from app.crud.auth import hash_password
 from app.db.database import Base, get_db
 from app.main import app
 from app.models.child import Child
+from app.models.story_draft import StoryDraft
 from app.models.user import User
 
 _DATABASE_URL = "sqlite://"
@@ -83,6 +84,19 @@ def test_child(db, test_user) -> Child:
     db.commit()
     db.refresh(child)
     return child
+
+
+@pytest.fixture()
+def test_story_draft(db, test_child: Child) -> StoryDraft:
+    """Create and return an in-progress story draft for test_child."""
+    draft = StoryDraft(
+        child_id=test_child.id,
+        theme="space adventure",
+    )
+    db.add(draft)
+    db.commit()
+    db.refresh(draft)
+    return draft
 
 
 @pytest.fixture()

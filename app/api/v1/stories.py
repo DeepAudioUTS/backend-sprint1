@@ -12,7 +12,7 @@ from app.crud.story import (
     fetch_audio_bytes,
     generate_abstract_background,
     generate_story_and_audio_background,
-    get_cached_abstracts,
+    get_draft_by_id,
     get_in_progress_story_by_user_id,
     get_stories_by_user_id,
     get_story_audio_url,
@@ -20,9 +20,15 @@ from app.crud.story import (
     select_abstract,
 )
 from app.db.database import get_db
-from app.models.story import StoryStatus
+from app.models.story_draft import get_draft_status
 from app.models.user import User
-from app.schemas.story import AbstractSelect, InProgressStoryResponse, StoryCreate, StoryListResponse, StoryResponse
+from app.schemas.story import (
+    AbstractSelect,
+    InProgressStoryResponse,
+    StoryCreate,
+    StoryListResponse,
+    StoryResponse,
+)
 
 router = APIRouter()
 
@@ -34,25 +40,25 @@ def get_stories(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StoryListResponse:
-    """Return a paginated list of stories for the authenticated user."""
+    """Return a paginated list of completed stories for the authenticated user."""
     return get_stories_by_user_id(db, current_user.id, limit=limit, offset=offset)
 
 
-@router.post("/", response_model=StoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=InProgressStoryResponse, status_code=status.HTTP_201_CREATED)
 def post_story(
     story_in: StoryCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> StoryResponse:
-    """Create a new story and kick off abstract generation in the background.
+) -> InProgressStoryResponse:
+    """Create a StoryDraft and kick off abstract generation in the background.
 
-    Status after this call: generating_abstract
-    After background task completes: generating_text
+    Returns a draft_id used for all subsequent in-progress operations.
+    The Story record is created only when audio generation completes.
     """
-    story = create_story(db, story_in)
-    background_tasks.add_task(generate_abstract_background, story.id, story.theme)
-    return story
+    result = create_story(db, story_in)
+    background_tasks.add_task(generate_abstract_background, result.draft_id, story_in.theme)
+    return result
 
 
 @router.get("/in_progress", response_model=InProgressStoryResponse)
@@ -60,104 +66,100 @@ def get_in_progress_story(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> InProgressStoryResponse:
-    """Return the story_id and status of the currently in-progress story.
+    """Return the draft_id and status of the currently in-progress story.
 
+    Status is inferred from the StoryDraft's field population.
     Returns 404 if no story is in progress.
     """
-    story = get_in_progress_story_by_user_id(db, current_user.id)
-    if story is None:
+    result = get_in_progress_story_by_user_id(db, current_user.id)
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No story in progress",
         )
-    return story
+    return result
 
 
-@router.get("/{story_id}/abstracts", response_model=list[str])
+@router.get("/{draft_id}/abstracts", response_model=list[str])
 def get_abstracts(
-    story_id: uuid.UUID,
+    draft_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[str]:
     """Poll for generated abstract candidates.
 
-    Returns 200 with the list once abstract_ready, or 202 while still generating.
+    Returns 200 with the list once abstracts are ready, or 202 while still generating.
     """
-    story = get_story_by_id(db, story_id=story_id, user_id=current_user.id)
-    if story is None:
+    draft = get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
+    if draft is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Story not found",
+            detail="Draft not found",
         )
-    if story.status == StoryStatus.GENERATING_ABSTRACT:
+    if draft.abstracts is None:
         raise HTTPException(
             status_code=status.HTTP_202_ACCEPTED,
             detail="Abstracts are still being generated",
         )
-    abstracts = get_cached_abstracts(story_id)
-    if abstracts is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Abstracts not found in cache",
-        )
-    return abstracts
+    return draft.abstracts
 
 
-@router.post("/{story_id}/select_abstract", response_model=StoryResponse)
+@router.post("/{draft_id}/select_abstract", response_model=InProgressStoryResponse)
 def post_select_abstract(
-    story_id: uuid.UUID,
+    draft_id: uuid.UUID,
     body: AbstractSelect,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> StoryResponse:
-    """Persist the user-selected abstract and advance status to generating_text."""
-    story = get_story_by_id(db, story_id=story_id, user_id=current_user.id)
-    if story is None:
+) -> InProgressStoryResponse:
+    """Persist the user-selected abstract on the draft.
+
+    Requires abstracts to be ready (ABSTRACT_READY state).
+    """
+    draft = get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
+    if draft is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Story not found",
+            detail="Draft not found",
         )
-    if story.status != StoryStatus.ABSTRACT_READY:
+    if draft.abstracts is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Story is not ready for abstract selection (current status: {story.status})",
+            detail="Abstracts are not ready yet",
         )
-    select_abstract(db, story_id, body.abstract)
-    return get_story_by_id(db, story_id=story_id, user_id=current_user.id)  # type: ignore[return-value]
+    select_abstract(db, draft_id, body.abstract)
+    db.refresh(draft)
+    return InProgressStoryResponse(draft_id=draft.id, status=get_draft_status(draft))
 
 
 @router.post(
-    "/{story_id}/generate_story",
-    response_model=StoryResponse,
+    "/{draft_id}/generate_story",
+    response_model=InProgressStoryResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 def generate_story(
-    story_id: uuid.UUID,
+    draft_id: uuid.UUID,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> StoryResponse:
-    """Trigger story and audio generation for a story whose abstract is ready.
+) -> InProgressStoryResponse:
+    """Trigger story and audio generation in the background.
 
-    The story must be in generating_text status (abstract already generated).
-    Story generation and audio generation run sequentially in the background.
-
-    Status transitions:
-        generating_text → (story API) → generating_audio → (audio API) → completed
+    Requires an abstract to have been selected (GENERATING_TEXT state).
+    When complete, the Story record is created and the draft is deleted.
     """
-    story = get_story_by_id(db, story_id=story_id, user_id=current_user.id)
-    if story is None:
+    draft = get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
+    if draft is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Story not found",
+            detail="Draft not found",
         )
-    if story.status != StoryStatus.GENERATING_TEXT:
+    if draft.selected_abstract is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Story is not ready for generation (current status: {story.status})",
+            detail="Abstract has not been selected yet",
         )
-    background_tasks.add_task(generate_story_and_audio_background, story_id)
-    return story
+    background_tasks.add_task(generate_story_and_audio_background, draft_id)
+    return InProgressStoryResponse(draft_id=draft.id, status=get_draft_status(draft))
 
 
 @router.get("/{story_id}/audio")
@@ -166,13 +168,7 @@ def get_story_audio(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
-    """Fetch and return the audio file for a completed story.
-
-    Retrieves the audio_url from the DB, proxies the request to the TTS service,
-    and streams the audio bytes back to the client.
-
-    Returns 404 if the story is not found or audio has not been generated yet.
-    """
+    """Fetch and return the audio file for a completed story."""
     audio_url = get_story_audio_url(db, story_id=story_id, user_id=current_user.id)
     if audio_url is None:
         raise HTTPException(
@@ -195,7 +191,7 @@ def delete_story_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> None:
-    """Delete a story by ID (stories of other users cannot be deleted)."""
+    """Soft-delete a completed story by ID."""
     deleted = delete_story(db, story_id=story_id, user_id=current_user.id)
     if not deleted:
         raise HTTPException(
@@ -210,7 +206,7 @@ def get_story(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StoryResponse:
-    """Return the story with the specified ID (stories of other users cannot be retrieved)."""
+    """Return a completed story by ID."""
     story = get_story_by_id(db, story_id=story_id, user_id=current_user.id)
     if story is None:
         raise HTTPException(
