@@ -115,9 +115,13 @@ def generate_abstract_background(draft_id: uuid.UUID, theme: str) -> None:
         story_prompts = [c.story_prompt for c in candidates]
         crud.mark_abstract_ready(db, draft_id, abstracts, story_prompts)
     except Exception as e:
-        print(e)
-        db.rollback()
-        crud.mark_failed(db, draft_id, str(e))
+        print(f"[BG] abstract error: {e}")
+        try:
+            db.rollback()
+            crud.mark_failed(db, draft_id, str(e))
+            print("[BG] mark_failed succeeded")
+        except Exception as e2:
+            print(f"[BG] mark_failed also failed: {e2}")
     finally:
         db.close()
 
