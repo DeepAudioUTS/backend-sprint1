@@ -1,5 +1,4 @@
 import uuid
-import time
 
 import httpx
 from sqlalchemy import select, func
@@ -10,7 +9,7 @@ from app.db.database import SessionLocal
 from app.models.child import Child
 from app.models.story import Story
 from app.models.story_draft import StoryDraft, DraftStatus, get_draft_status
-from app.schemas.story import StoryCreate, StoryResponse, StoryListResponse, InProgressStoryResponse
+from app.schemas.story import StoryCreate, StoryResponse, StoryListResponse, InProgressStoryResponse, AbstractCandidate
 
 
 # ---------------------------------------------------------------------------
@@ -52,9 +51,9 @@ def create_story(db: Session, story_in: StoryCreate) -> InProgressStoryResponse:
 
 
 def mark_story_abstract_ready(
-    db: Session, draft_id: uuid.UUID, abstracts: list[str]
+    db: Session, draft_id: uuid.UUID, abstracts: list[str], story_prompts: list[str]
 ) -> None:
-    """Store generated abstract candidates on the draft.
+    """Store generated abstract candidates and their story prompts on the draft.
 
     Draft state transition: GENERATING_ABSTRACT → ABSTRACT_READY
 
@@ -62,16 +61,18 @@ def mark_story_abstract_ready(
         db: Database session.
         draft_id: Target draft ID.
         abstracts: List of generated abstract candidates.
+        story_prompts: List of story prompts corresponding to each abstract.
     """
     draft = db.get(StoryDraft, draft_id)
     if draft is None:
         return
     draft.abstracts = abstracts
+    draft.story_prompts = story_prompts
     db.commit()
 
 
-def select_abstract(db: Session, draft_id: uuid.UUID, abstract: str) -> None:
-    """Persist the user-selected abstract on the draft.
+def select_abstract(db: Session, draft_id: uuid.UUID, abstract: str, story_prompt: str) -> None:
+    """Persist the user-selected abstract and its story prompt on the draft.
 
     Draft state transition: ABSTRACT_READY → GENERATING_TEXT
 
@@ -79,11 +80,13 @@ def select_abstract(db: Session, draft_id: uuid.UUID, abstract: str) -> None:
         db: Database session.
         draft_id: Target draft ID.
         abstract: The abstract chosen by the user.
+        story_prompt: The story prompt paired with the selected abstract.
     """
     draft = db.get(StoryDraft, draft_id)
     if draft is None:
         return
     draft.selected_abstract = abstract
+    draft.selected_story_prompt = story_prompt
     db.commit()
 
 
@@ -132,7 +135,9 @@ def update_story_audio(
         theme=draft.theme,
         title=draft.title,
         abstracts=draft.abstracts,
+        story_prompts=draft.story_prompts,
         abstract=draft.selected_abstract,
+        story_prompt=draft.selected_story_prompt,
         content=draft.generated_text,
         audio_url=audio_url,
     )
@@ -275,29 +280,24 @@ def get_story_by_id(
 # External API stub functions (replace with real implementations)
 # ---------------------------------------------------------------------------
 
-def _call_abstract_api(theme: str) -> list[str]:
-    """Call the abstract generation API."""
+def _call_abstract_api(theme: str) -> list[AbstractCandidate]:
+    """Call the abstract generation API.
+
+    Returns a list of abstract candidates, each with an abstract and a story_prompt.
     """
-    url = f"{settings.LLM_API_URL}/abstract/api"
+    url = f"{settings.LLM_API_URL}/api/v1/abstract/generate"
     response = httpx.post(url, json={"theme": theme})
     response.raise_for_status()
-    return response.json()
-    """
-    time.sleep(5)
-    return [
-        f"An exciting story about {theme} for children.",
-        f"A magical adventure involving {theme}.",
-        f"A brave young hero discovers the wonders of {theme}.",
-    ]
+    return [AbstractCandidate(**item) for item in response.json()]
 
 
-def _call_story_api(theme: str, abstract: str) -> tuple[str, str]:
+def _call_story_api(abstract: str, story_prompt: str) -> tuple[str, str]:
     """Call the story generation API."""
-    # TODO: Replace with actual LLM API call
-    time.sleep(5)
-    title = f"The Adventure of {theme.capitalize()}"
-    content = f"Once upon a time, {abstract} The end."
-    return title, content
+    url = f"{settings.LLM_API_URL}/api/v1/story/generate"
+    response = httpx.post(url, json={"abstract": abstract, "story_prompt": story_prompt})
+    response.raise_for_status()
+    data = response.json()
+    return data["title"], data["content"]
 
 
 def _call_audio_api(title: str, content: str) -> str:
@@ -323,8 +323,10 @@ def generate_abstract_background(draft_id: uuid.UUID, theme: str) -> None:
     """
     db = SessionLocal()
     try:
-        abstracts = _call_abstract_api(theme)
-        mark_story_abstract_ready(db, draft_id, abstracts)
+        candidates = _call_abstract_api(theme)
+        abstracts = [c.abstract for c in candidates]
+        story_prompts = [c.story_prompt for c in candidates]
+        mark_story_abstract_ready(db, draft_id, abstracts, story_prompts)
     finally:
         db.close()
 
@@ -345,7 +347,7 @@ def generate_story_and_audio_background(draft_id: uuid.UUID) -> None:
             return
 
         # Step 1: generate story text
-        title, content = _call_story_api(draft.theme, draft.selected_abstract or "")
+        title, content = _call_story_api(draft.selected_abstract or "", draft.selected_story_prompt or "")
         update_story_content(db, draft_id, title, content)
 
         # Step 2: generate audio, then create Story and delete draft

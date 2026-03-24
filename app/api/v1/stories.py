@@ -23,6 +23,7 @@ from app.db.database import get_db
 from app.models.story_draft import get_draft_status
 from app.models.user import User
 from app.schemas.story import (
+    AbstractCandidate,
     AbstractSelect,
     InProgressStoryResponse,
     StoryCreate,
@@ -80,15 +81,16 @@ def get_in_progress_story(
     return result
 
 
-@router.get("/{draft_id}/abstracts", response_model=list[str])
+@router.get("/{draft_id}/abstracts", response_model=list[AbstractCandidate])
 def get_abstracts(
     draft_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[str]:
+) -> list[AbstractCandidate]:
     """Poll for generated abstract candidates.
 
     Returns 200 with the list once abstracts are ready, or 202 while still generating.
+    Each item contains an abstract and its paired story_prompt.
     """
     draft = get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
     if draft is None:
@@ -96,12 +98,15 @@ def get_abstracts(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Draft not found",
         )
-    if draft.abstracts is None:
+    if draft.abstracts is None or draft.story_prompts is None:
         raise HTTPException(
             status_code=status.HTTP_202_ACCEPTED,
             detail="Abstracts are still being generated",
         )
-    return draft.abstracts
+    return [
+        AbstractCandidate(abstract=a, story_prompt=sp)
+        for a, sp in zip(draft.abstracts, draft.story_prompts)
+    ]
 
 
 @router.post("/{draft_id}/select_abstract", response_model=InProgressStoryResponse)
@@ -126,7 +131,7 @@ def post_select_abstract(
             status_code=status.HTTP_409_CONFLICT,
             detail="Abstracts are not ready yet",
         )
-    select_abstract(db, draft_id, body.abstract)
+    select_abstract(db, draft_id, body.abstract, body.story_prompt)
     db.refresh(draft)
     return InProgressStoryResponse(draft_id=draft.id, status=get_draft_status(draft))
 

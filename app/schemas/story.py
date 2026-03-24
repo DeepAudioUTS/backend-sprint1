@@ -13,6 +13,13 @@ class StoryCreate(BaseModel):
     theme: str
 
 
+class AbstractCandidate(BaseModel):
+    """A single abstract candidate returned by the LLM."""
+
+    abstract: str
+    story_prompt: str
+
+
 class StoryResponse(BaseModel):
     """Story response for completed stories."""
 
@@ -23,7 +30,9 @@ class StoryResponse(BaseModel):
     theme: str
     title: str | None
     abstracts: list[str] | None
+    story_prompts: list[str] | None
     abstract: str | None
+    story_prompt: str | None
     content: str | None
     audio_url: str | None
     created_at: datetime
@@ -34,6 +43,7 @@ class AbstractSelect(BaseModel):
     """Request body for selecting an abstract."""
 
     abstract: str
+    story_prompt: str
 
 
 class InProgressStoryResponse(BaseModel):

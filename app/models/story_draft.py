@@ -67,7 +67,9 @@ class StoryDraft(Base):
     theme: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     abstracts: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    story_prompts: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     selected_abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    selected_story_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
