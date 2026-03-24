@@ -90,10 +90,10 @@ def _call_story_api(abstract: str, story_prompt: str) -> tuple[str, str]:
     return data["title"], data["content"]
 
 
-def _call_audio_api(title: str, content: str) -> str:
+def _call_audio_api(file_id: uuid.UUID, content: str) -> str:
     """POST to the TTS audio generation endpoint. Returns audio_url."""
     url = f"{settings.TTS_API_URL}/audio/generate"
-    response = httpx.post(url, json={"text": content, "title": title})
+    response = httpx.post(url, json={"text": content, "file_id": file_id})
     response.raise_for_status()
     return response.json()["audio_url"]
 
@@ -144,7 +144,7 @@ def generate_story_and_audio_background(draft_id: uuid.UUID) -> None:
         crud.set_story_content(db, draft_id, title, content)
 
         try:
-            audio_url = _call_audio_api(title, content)
+            audio_url = _call_audio_api(draft_id, content)
         except Exception as e:
             crud.mark_failed(db, draft_id, str(e))
             return
