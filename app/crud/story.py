@@ -60,12 +60,11 @@ def set_selected_abstract(
 def mark_failed(db: Session, draft_id: uuid.UUID, error: str) -> None:
     """Record a failure message on the draft."""
     draft = db.get(StoryDraft, draft_id)
-    print(draft)
     if draft is None:
         return
     draft.error = error
     db.commit()
-
+    print(draft.error)
 
 def clear_error(db: Session, draft_id: uuid.UUID) -> None:
     """Clear the error field so the draft can be retried."""
