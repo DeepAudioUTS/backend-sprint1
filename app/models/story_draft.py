@@ -16,10 +16,26 @@ class DraftStatus(str, Enum):
     ABSTRACT_READY = "abstract_ready"
     GENERATING_TEXT = "generating_text"
     GENERATING_AUDIO = "generating_audio"
+    FAILED_GENERATING_ABSTRACT = "failed_generating_abstract"
+    FAILED_GENERATING_TEXT = "failed_generating_text"
+    FAILED_GENERATING_AUDIO = "failed_generating_audio"
 
 
 def get_draft_status(draft: "StoryDraft") -> DraftStatus:
-    """Infer the current generation status from which fields are populated."""
+    """Infer the current generation status from which fields are populated.
+
+    When error is set, the failed step is determined by which fields were
+    populated before the failure occurred:
+        error + generated_text set   → FAILED_GENERATING_AUDIO
+        error + selected_abstract set → FAILED_GENERATING_TEXT
+        error + neither              → FAILED_GENERATING_ABSTRACT
+    """
+    if draft.error is not None:
+        if draft.generated_text is not None:
+            return DraftStatus.FAILED_GENERATING_AUDIO
+        if draft.selected_abstract is not None:
+            return DraftStatus.FAILED_GENERATING_TEXT
+        return DraftStatus.FAILED_GENERATING_ABSTRACT
     if draft.generated_text is not None:
         return DraftStatus.GENERATING_AUDIO
     if draft.selected_abstract is not None:
@@ -71,6 +87,7 @@ class StoryDraft(Base):
     selected_abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
     selected_story_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

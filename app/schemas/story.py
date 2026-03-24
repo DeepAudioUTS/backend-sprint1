@@ -51,10 +51,12 @@ class InProgressStoryResponse(BaseModel):
 
     draft_id is the StoryDraft ID used for all in-progress operations.
     Status is inferred from the draft's field population.
+    error is populated when status is one of the FAILED_* states.
     """
 
     draft_id: uuid.UUID
     status: DraftStatus
+    error: str | None = None
 
 
 class StoryListResponse(BaseModel):

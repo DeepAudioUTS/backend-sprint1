@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user
 from app.crud.story import (
+    clear_draft_error,
     create_story,
     delete_story,
     fetch_audio_bytes,
     generate_abstract_background,
+    generate_audio_background,
     generate_story_and_audio_background,
     get_draft_by_id,
     get_in_progress_story_by_user_id,
@@ -20,7 +22,7 @@ from app.crud.story import (
     select_abstract,
 )
 from app.db.database import get_db
-from app.models.story_draft import get_draft_status
+from app.models.story_draft import DraftStatus, get_draft_status
 from app.models.user import User
 from app.schemas.story import (
     AbstractCandidate,
@@ -164,6 +166,55 @@ def generate_story(
             detail="Abstract has not been selected yet",
         )
     background_tasks.add_task(generate_story_and_audio_background, draft_id)
+    return InProgressStoryResponse(draft_id=draft.id, status=get_draft_status(draft))
+
+
+_RETRYABLE_STATUSES = {
+    DraftStatus.FAILED_GENERATING_ABSTRACT,
+    DraftStatus.FAILED_GENERATING_TEXT,
+    DraftStatus.FAILED_GENERATING_AUDIO,
+}
+
+
+@router.post(
+    "/{draft_id}/retry",
+    response_model=InProgressStoryResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def retry_story(
+    draft_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InProgressStoryResponse:
+    """Retry a failed story generation step.
+
+    Clears the error and restarts the background task that previously failed.
+    Can only be called when the draft is in a FAILED_* state.
+    """
+    draft = get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Draft not found",
+        )
+    current_status = get_draft_status(draft)
+    if current_status not in _RETRYABLE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Draft is not in a failed state (current: {current_status})",
+        )
+
+    clear_draft_error(db, draft_id)
+
+    if current_status == DraftStatus.FAILED_GENERATING_ABSTRACT:
+        background_tasks.add_task(generate_abstract_background, draft_id, draft.theme)
+    elif current_status == DraftStatus.FAILED_GENERATING_TEXT:
+        background_tasks.add_task(generate_story_and_audio_background, draft_id)
+    else:  # FAILED_GENERATING_AUDIO
+        background_tasks.add_task(generate_audio_background, draft_id)
+
+    db.refresh(draft)
     return InProgressStoryResponse(draft_id=draft.id, status=get_draft_status(draft))
 
 

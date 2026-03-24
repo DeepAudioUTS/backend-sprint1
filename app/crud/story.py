@@ -90,6 +90,38 @@ def select_abstract(db: Session, draft_id: uuid.UUID, abstract: str, story_promp
     db.commit()
 
 
+def mark_story_failed(db: Session, draft_id: uuid.UUID, error: str) -> None:
+    """Record a failure on the draft so the client can see what went wrong.
+
+    The failed step is inferred by get_draft_status() from existing field state,
+    so no explicit step parameter is needed here.
+
+    Args:
+        db: Database session.
+        draft_id: Target draft ID.
+        error: Human-readable error message.
+    """
+    draft = db.get(StoryDraft, draft_id)
+    if draft is None:
+        return
+    draft.error = error
+    db.commit()
+
+
+def clear_draft_error(db: Session, draft_id: uuid.UUID) -> None:
+    """Clear the error field so the draft can be retried.
+
+    Args:
+        db: Database session.
+        draft_id: Target draft ID.
+    """
+    draft = db.get(StoryDraft, draft_id)
+    if draft is None:
+        return
+    draft.error = None
+    db.commit()
+
+
 def update_story_content(
     db: Session, draft_id: uuid.UUID, title: str, content: str
 ) -> None:
@@ -315,7 +347,7 @@ def _call_audio_api(title: str, content: str) -> str:
 def generate_abstract_background(draft_id: uuid.UUID, theme: str) -> None:
     """Background task: generate abstract candidates and store them on the draft.
 
-    Draft state transition: GENERATING_ABSTRACT → ABSTRACT_READY
+    Draft state transition: GENERATING_ABSTRACT → ABSTRACT_READY (or FAILED_GENERATING_ABSTRACT on error)
 
     Args:
         draft_id: ID of the StoryDraft to update.
@@ -327,6 +359,8 @@ def generate_abstract_background(draft_id: uuid.UUID, theme: str) -> None:
         abstracts = [c.abstract for c in candidates]
         story_prompts = [c.story_prompt for c in candidates]
         mark_story_abstract_ready(db, draft_id, abstracts, story_prompts)
+    except Exception as e:
+        mark_story_failed(db, draft_id, str(e))
     finally:
         db.close()
 
@@ -336,6 +370,8 @@ def generate_story_and_audio_background(draft_id: uuid.UUID) -> None:
 
     Draft state transitions:
         GENERATING_TEXT → (story API) → GENERATING_AUDIO → (audio API) → Story created, draft deleted
+        On story API error  → FAILED_GENERATING_TEXT
+        On audio API error  → FAILED_GENERATING_AUDIO
 
     Args:
         draft_id: ID of the StoryDraft to process.
@@ -347,11 +383,44 @@ def generate_story_and_audio_background(draft_id: uuid.UUID) -> None:
             return
 
         # Step 1: generate story text
-        title, content = _call_story_api(draft.selected_abstract or "", draft.selected_story_prompt or "")
+        try:
+            title, content = _call_story_api(draft.selected_abstract or "", draft.selected_story_prompt or "")
+        except Exception as e:
+            mark_story_failed(db, draft_id, str(e))
+            return
         update_story_content(db, draft_id, title, content)
 
         # Step 2: generate audio, then create Story and delete draft
-        audio_url = _call_audio_api(title, content)
+        try:
+            audio_url = _call_audio_api(title, content)
+        except Exception as e:
+            mark_story_failed(db, draft_id, str(e))
+            return
+        update_story_audio(db, draft_id, audio_url)
+    finally:
+        db.close()
+
+
+def generate_audio_background(draft_id: uuid.UUID) -> None:
+    """Background task: generate audio only (used when retrying FAILED_GENERATING_AUDIO).
+
+    Reads the already-generated title and text from the draft.
+
+    Draft state transition: GENERATING_AUDIO → Story created, draft deleted (or FAILED_GENERATING_AUDIO on error)
+
+    Args:
+        draft_id: ID of the StoryDraft to process.
+    """
+    db = SessionLocal()
+    try:
+        draft = db.get(StoryDraft, draft_id)
+        if draft is None:
+            return
+        try:
+            audio_url = _call_audio_api(draft.title or "", draft.generated_text or "")
+        except Exception as e:
+            mark_story_failed(db, draft_id, str(e))
+            return
         update_story_audio(db, draft_id, audio_url)
     finally:
         db.close()
