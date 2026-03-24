@@ -118,6 +118,7 @@ def generate_abstract_background(draft_id: uuid.UUID, theme: str) -> None:
         story_prompts = [c.story_prompt for c in candidates]
         crud.mark_abstract_ready(db, draft_id, abstracts, story_prompts)
     except Exception as e:
+        print(e)
         crud.mark_failed(db, draft_id, str(e))
     finally:
         db.close()
