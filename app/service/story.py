@@ -76,6 +76,7 @@ def fetch_audio_bytes(audio_url: str) -> tuple[bytes, str]:
 def _call_abstract_api(theme: str) -> list[AbstractCandidate]:
     """POST to the LLM abstract generation endpoint."""
     url = f"{settings.LLM_API_URL}/api/v1/abstract/generate"
+    print(url)
     response = httpx.post(url, json={"theme": theme, "count": 5})
     response.raise_for_status()
     return [AbstractCandidate(**item) for item in response.json()]
@@ -84,6 +85,7 @@ def _call_abstract_api(theme: str) -> list[AbstractCandidate]:
 def _call_story_api(abstract: str, story_prompt: str) -> tuple[str, str]:
     """POST to the LLM story generation endpoint. Returns (title, content)."""
     url = f"{settings.LLM_API_URL}/api/v1/story/generate"
+    print(url)
     response = httpx.post(url, json={"abstract": abstract, "story_prompt": story_prompt})
     response.raise_for_status()
     data = response.json()
@@ -93,6 +95,7 @@ def _call_story_api(abstract: str, story_prompt: str) -> tuple[str, str]:
 def _call_audio_api(file_id: uuid.UUID, content: str) -> str:
     """POST to the TTS audio generation endpoint. Returns audio_url."""
     url = f"{settings.TTS_API_URL}/audio/generate"
+    print(url)
     response = httpx.post(url, json={"text": content, "file_id": file_id})
     response.raise_for_status()
     return response.json()["audio_url"]
