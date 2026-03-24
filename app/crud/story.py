@@ -319,7 +319,7 @@ def _call_abstract_api(theme: str) -> list[AbstractCandidate]:
     """
     url = f"{settings.LLM_API_URL}/api/v1/abstract/generate"
     print(url)
-    response = httpx.post(url, json={"theme": theme})
+    response = httpx.post(url, json={"theme": theme, "count": 5})
     response.raise_for_status()
     return [AbstractCandidate(**item) for item in response.json()]
 
