@@ -64,7 +64,6 @@ def mark_failed(db: Session, draft_id: uuid.UUID, error: str) -> None:
         return
     draft.error = error
     db.commit()
-    print(draft.error)
 
 def clear_error(db: Session, draft_id: uuid.UUID) -> None:
     """Clear the error field so the draft can be retried."""
