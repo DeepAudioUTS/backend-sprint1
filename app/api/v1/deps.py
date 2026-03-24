@@ -72,14 +72,17 @@ def auto_resume_if_failed(
     No-ops when the draft is not found or is not in a failed state.
     """
     draft = crud.get_draft(db, draft_id)
+    print(f"[RESUME] draft={draft}, draft_id={draft_id}")
     if draft is None:
         return
     current_status = get_draft_status(draft)
+    print(f"[RESUME] status={current_status}, error={draft.error}")
     if current_status not in _FAILED_STATUSES:
         return
 
     theme = draft.theme
     crud.clear_error(db, draft_id)
+    print(f"[RESUME] cleared error, adding background task for {current_status}")
 
     if current_status == DraftStatus.FAILED_GENERATING_ABSTRACT:
         background_tasks.add_task(story_service.generate_abstract_background, draft_id, theme)
