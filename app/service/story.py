@@ -91,7 +91,7 @@ def _call_story_api(theme: str, abstract: str, story_prompt: str) -> tuple[str, 
     response = httpx.post(url, json={"education_topic": theme, "abstract": abstract, "story_prompt": story_prompt}, timeout=_LLM_TIMEOUT)
     response.raise_for_status()
     data = response.json()
-    return data["title"], data["content"]
+    return data["title"], data["story"]
 
 
 def _call_audio_api(file_id: uuid.UUID, content: str) -> str:
