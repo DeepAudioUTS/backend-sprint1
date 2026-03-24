@@ -85,10 +85,10 @@ def _call_abstract_api(theme: str) -> list[AbstractCandidate]:
     return [AbstractCandidate(**item) for item in response.json()]
 
 
-def _call_story_api(abstract: str, story_prompt: str) -> tuple[str, str]:
+def _call_story_api(theme: str, abstract: str, story_prompt: str) -> tuple[str, str]:
     """POST to the LLM story generation endpoint. Returns (title, content)."""
     url = f"{settings.LLM_API_URL}/api/v1/story/generate"
-    response = httpx.post(url, json={"abstract": abstract, "story_prompt": story_prompt}, timeout=_LLM_TIMEOUT)
+    response = httpx.post(url, json={"education_topic": theme, "abstract": abstract, "story_prompt": story_prompt}, timeout=_LLM_TIMEOUT)
     response.raise_for_status()
     data = response.json()
     return data["title"], data["content"]
@@ -146,7 +146,7 @@ def generate_story_and_audio_background(draft_id: uuid.UUID) -> None:
 
         try:
             title, content = _call_story_api(
-                draft.selected_abstract or "", draft.selected_story_prompt or ""
+                draft.theme or "", draft.selected_abstract or "", draft.selected_story_prompt or ""
             )
         except Exception as e:
             db.rollback()
