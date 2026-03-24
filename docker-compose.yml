@@ -4,6 +4,7 @@ services:
   web:
     build: .
     container_name: background-api
+    tty: true
     ports:
       - "8000:8000"
     volumes:
