@@ -6,15 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.crud.auth import get_user_by_email
-from app.crud.story import (
-    clear_draft_error,
-    generate_abstract_background,
-    generate_audio_background,
-    generate_story_and_audio_background,
-)
+from app.crud import story as crud
 from app.db.database import get_db
-from app.models.story_draft import DraftStatus, StoryDraft, get_draft_status
+from app.models.story_draft import DraftStatus, get_draft_status
 from app.models.user import User
+from app.service import story as story_service
 
 _FAILED_STATUSES = frozenset({
     DraftStatus.FAILED_GENERATING_ABSTRACT,
@@ -75,7 +71,7 @@ def auto_resume_if_failed(
 
     No-ops when the draft is not found or is not in a failed state.
     """
-    draft = db.get(StoryDraft, draft_id)
+    draft = crud.get_draft(db, draft_id)
     if draft is None:
         return
     current_status = get_draft_status(draft)
@@ -83,11 +79,11 @@ def auto_resume_if_failed(
         return
 
     theme = draft.theme
-    clear_draft_error(db, draft_id)
+    crud.clear_error(db, draft_id)
 
     if current_status == DraftStatus.FAILED_GENERATING_ABSTRACT:
-        background_tasks.add_task(generate_abstract_background, draft_id, theme)
+        background_tasks.add_task(story_service.generate_abstract_background, draft_id, theme)
     elif current_status == DraftStatus.FAILED_GENERATING_TEXT:
-        background_tasks.add_task(generate_story_and_audio_background, draft_id)
+        background_tasks.add_task(story_service.generate_story_and_audio_background, draft_id)
     else:  # FAILED_GENERATING_AUDIO
-        background_tasks.add_task(generate_audio_background, draft_id)
+        background_tasks.add_task(story_service.generate_audio_background, draft_id)

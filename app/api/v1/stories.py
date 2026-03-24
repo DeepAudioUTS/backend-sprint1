@@ -6,19 +6,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import auto_resume_if_failed, get_current_user
-from app.crud.story import (
-    create_story,
-    delete_story,
-    fetch_audio_bytes,
-    generate_abstract_background,
-    generate_story_and_audio_background,
-    get_draft_by_id,
-    get_in_progress_story_by_user_id,
-    get_stories_by_user_id,
-    get_story_audio_url,
-    get_story_by_id,
-    select_abstract,
-)
+from app.crud import story as crud
 from app.db.database import get_db
 from app.models.story_draft import get_draft_status
 from app.models.user import User
@@ -30,6 +18,7 @@ from app.schemas.story import (
     StoryListResponse,
     StoryResponse,
 )
+from app.service import story as story_service
 
 router = APIRouter()
 
@@ -42,7 +31,7 @@ def get_stories(
     db: Session = Depends(get_db),
 ) -> StoryListResponse:
     """Return a paginated list of completed stories for the authenticated user."""
-    return get_stories_by_user_id(db, current_user.id, limit=limit, offset=offset)
+    return story_service.get_stories(db, current_user.id, limit=limit, offset=offset)
 
 
 @router.post("/", response_model=InProgressStoryResponse, status_code=status.HTTP_201_CREATED)
@@ -57,8 +46,8 @@ def post_story(
     Returns a draft_id used for all subsequent in-progress operations.
     The Story record is created only when audio generation completes.
     """
-    result = create_story(db, story_in)
-    background_tasks.add_task(generate_abstract_background, result.draft_id, story_in.theme)
+    result = story_service.create_story(db, story_in.child_id, story_in.theme)
+    background_tasks.add_task(story_service.generate_abstract_background, result.draft_id, story_in.theme)
     return result
 
 
@@ -72,7 +61,7 @@ def get_in_progress_story(
     Status is inferred from the StoryDraft's field population.
     Returns 404 if no story is in progress.
     """
-    result = get_in_progress_story_by_user_id(db, current_user.id)
+    result = story_service.get_in_progress_story(db, current_user.id)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -92,8 +81,9 @@ def get_abstracts(
 
     Returns 200 with the list once abstracts are ready, or 202 while still generating.
     Each item contains an abstract and its paired story_prompt.
+    If the draft was in a failed state, generation is automatically resumed.
     """
-    draft = get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
+    draft = crud.get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
     if draft is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -118,11 +108,11 @@ def post_select_abstract(
     db: Session = Depends(get_db),
     _: None = Depends(auto_resume_if_failed),
 ) -> InProgressStoryResponse:
-    """Persist the user-selected abstract on the draft.
+    """Persist the user-selected abstract and its paired story_prompt on the draft.
 
     Requires abstracts to be ready (ABSTRACT_READY state).
     """
-    draft = get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
+    draft = crud.get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
     if draft is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -133,7 +123,7 @@ def post_select_abstract(
             status_code=status.HTTP_409_CONFLICT,
             detail="Abstracts are not ready yet",
         )
-    select_abstract(db, draft_id, body.abstract, body.story_prompt)
+    crud.set_selected_abstract(db, draft_id, body.abstract, body.story_prompt)
     db.refresh(draft)
     return InProgressStoryResponse(draft_id=draft.id, status=get_draft_status(draft))
 
@@ -154,8 +144,9 @@ def generate_story(
 
     Requires an abstract to have been selected (GENERATING_TEXT state).
     When complete, the Story record is created and the draft is deleted.
+    If the draft was in a failed state, generation is automatically resumed.
     """
-    draft = get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
+    draft = crud.get_draft_by_id(db, draft_id=draft_id, user_id=current_user.id)
     if draft is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -166,7 +157,7 @@ def generate_story(
             status_code=status.HTTP_409_CONFLICT,
             detail="Abstract has not been selected yet",
         )
-    background_tasks.add_task(generate_story_and_audio_background, draft_id)
+    background_tasks.add_task(story_service.generate_story_and_audio_background, draft_id)
     return InProgressStoryResponse(draft_id=draft.id, status=get_draft_status(draft))
 
 
@@ -177,14 +168,14 @@ def get_story_audio(
     db: Session = Depends(get_db),
 ) -> Response:
     """Fetch and return the audio file for a completed story."""
-    audio_url = get_story_audio_url(db, story_id=story_id, user_id=current_user.id)
+    audio_url = crud.get_story_audio_url(db, story_id=story_id, user_id=current_user.id)
     if audio_url is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Story not found or audio not yet generated",
         )
     try:
-        audio_bytes, content_type = fetch_audio_bytes(audio_url)
+        audio_bytes, content_type = story_service.fetch_audio_bytes(audio_url)
     except httpx.HTTPStatusError as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -200,7 +191,7 @@ def delete_story_endpoint(
     db: Session = Depends(get_db),
 ) -> None:
     """Soft-delete a completed story by ID."""
-    deleted = delete_story(db, story_id=story_id, user_id=current_user.id)
+    deleted = crud.soft_delete_story(db, story_id=story_id, user_id=current_user.id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -215,7 +206,7 @@ def get_story(
     db: Session = Depends(get_db),
 ) -> StoryResponse:
     """Return a completed story by ID."""
-    story = get_story_by_id(db, story_id=story_id, user_id=current_user.id)
+    story = story_service.get_story(db, story_id=story_id, user_id=current_user.id)
     if story is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
