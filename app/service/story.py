@@ -78,7 +78,6 @@ def _call_abstract_api(theme: str) -> list[AbstractCandidate]:
     url = f"{settings.LLM_API_URL}/api/v1/abstract/generate"
     response = httpx.post(url, json={"theme": theme, "count": 5})
     response.raise_for_status()
-    print(response.status_code)
     return [AbstractCandidate(**item) for item in response.json()]
 
 
@@ -87,7 +86,6 @@ def _call_story_api(abstract: str, story_prompt: str) -> tuple[str, str]:
     url = f"{settings.LLM_API_URL}/api/v1/story/generate"
     response = httpx.post(url, json={"abstract": abstract, "story_prompt": story_prompt})
     response.raise_for_status()
-    print(response.status_code)
     data = response.json()
     return data["title"], data["content"]
 
@@ -97,7 +95,6 @@ def _call_audio_api(file_id: uuid.UUID, content: str) -> str:
     url = f"{settings.TTS_API_URL}/audio/generate"
     response = httpx.post(url, json={"text": content, "file_id": file_id})
     response.raise_for_status()
-    print(response.status_code)
     return response.json()["audio_url"]
 
 
@@ -119,6 +116,7 @@ def generate_abstract_background(draft_id: uuid.UUID, theme: str) -> None:
         crud.mark_abstract_ready(db, draft_id, abstracts, story_prompts)
     except Exception as e:
         print(e)
+        db.rollback()
         crud.mark_failed(db, draft_id, str(e))
     finally:
         db.close()
@@ -143,6 +141,7 @@ def generate_story_and_audio_background(draft_id: uuid.UUID) -> None:
                 draft.selected_abstract or "", draft.selected_story_prompt or ""
             )
         except Exception as e:
+            db.rollback()
             crud.mark_failed(db, draft_id, str(e))
             return
         crud.set_story_content(db, draft_id, title, content)
@@ -150,6 +149,7 @@ def generate_story_and_audio_background(draft_id: uuid.UUID) -> None:
         try:
             audio_url = _call_audio_api(draft_id, content)
         except Exception as e:
+            db.rollback()
             crud.mark_failed(db, draft_id, str(e))
             return
         crud.finalize_story(db, draft_id, audio_url)
@@ -171,6 +171,7 @@ def generate_audio_background(draft_id: uuid.UUID) -> None:
         try:
             audio_url = _call_audio_api(draft.title or "", draft.generated_text or "")
         except Exception as e:
+            db.rollback()
             crud.mark_failed(db, draft_id, str(e))
             return
         crud.finalize_story(db, draft_id, audio_url)
