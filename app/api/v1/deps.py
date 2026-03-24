@@ -56,33 +56,19 @@ def get_current_user(
     return user
 
 
-def auto_resume_if_failed(
-    draft_id: uuid.UUID,
+def _resume_draft(
+    draft: "StoryDraft",  # noqa: F821
+    db: Session,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
 ) -> None:
-    """FastAPI dependency that automatically resumes a failed story generation step.
-
-    Inject into any draft endpoint that the client polls or interacts with.
-    When the draft is in a FAILED_* state, this dependency:
-      - Clears the error field (so the endpoint sees the correct in-progress status).
-      - Enqueues the appropriate background task via FastAPI's BackgroundTasks
-        (runs after the response is sent).
-
-    No-ops when the draft is not found or is not in a failed state.
-    """
-    draft = crud.get_draft(db, draft_id)
-    print(f"[RESUME] draft={draft}, draft_id={draft_id}")
-    if draft is None:
-        return
+    """Resume a draft that is in a FAILED_* state. No-ops for any other state."""
     current_status = get_draft_status(draft)
-    print(f"[RESUME] status={current_status}, error={draft.error}")
     if current_status not in _FAILED_STATUSES:
         return
 
+    draft_id = draft.id
     theme = draft.theme
     crud.clear_error(db, draft_id)
-    print(f"[RESUME] cleared error, adding background task for {current_status}")
 
     if current_status == DraftStatus.FAILED_GENERATING_ABSTRACT:
         background_tasks.add_task(story_service.generate_abstract_background, draft_id, theme)
@@ -90,3 +76,33 @@ def auto_resume_if_failed(
         background_tasks.add_task(story_service.generate_story_and_audio_background, draft_id)
     else:  # FAILED_GENERATING_AUDIO
         background_tasks.add_task(story_service.generate_audio_background, draft_id)
+
+
+def auto_resume_if_failed(
+    draft_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> None:
+    """Dependency for draft endpoints with {draft_id} in the path.
+
+    Looks up the draft by draft_id and resumes it if it is in a FAILED_* state.
+    """
+    draft = crud.get_draft(db, draft_id)
+    if draft is None:
+        return
+    _resume_draft(draft, db, background_tasks)
+
+
+def auto_resume_in_progress(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Dependency for GET /in_progress.
+
+    Looks up the user's active draft and resumes it if it is in a FAILED_* state.
+    """
+    draft = crud.get_active_draft_by_user(db, current_user.id)
+    if draft is None:
+        return
+    _resume_draft(draft, db, background_tasks)

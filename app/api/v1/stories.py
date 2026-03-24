@@ -5,7 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import auto_resume_if_failed, get_current_user
+from app.api.v1.deps import auto_resume_if_failed, auto_resume_in_progress, get_current_user
 from app.crud import story as crud
 from app.db.database import get_db
 from app.models.story_draft import get_draft_status
@@ -55,6 +55,7 @@ def post_story(
 def get_in_progress_story(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    _: None = Depends(auto_resume_in_progress),
 ) -> InProgressStoryResponse:
     """Return the draft_id and status of the currently in-progress story.
 
