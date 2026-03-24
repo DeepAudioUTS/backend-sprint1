@@ -318,6 +318,7 @@ def _call_abstract_api(theme: str) -> list[AbstractCandidate]:
     Returns a list of abstract candidates, each with an abstract and a story_prompt.
     """
     url = f"{settings.LLM_API_URL}/api/v1/abstract/generate"
+    print(url)
     response = httpx.post(url, json={"theme": theme})
     response.raise_for_status()
     return [AbstractCandidate(**item) for item in response.json()]
@@ -354,6 +355,7 @@ def generate_abstract_background(draft_id: uuid.UUID, theme: str) -> None:
         theme: Story theme passed to the abstract API.
     """
     db = SessionLocal()
+    print("background")
     try:
         candidates = _call_abstract_api(theme)
         abstracts = [c.abstract for c in candidates]

@@ -108,10 +108,10 @@ GET /stories/in_progress  (poll)
   → status: abstract_ready       → fetch candidates via GET /{draft_id}/abstracts
 
 GET /stories/{draft_id}/abstracts
-  → receive list of abstract candidates
+  → receive list of abstract candidates, each with abstract and story_prompt
 
 POST /stories/{draft_id}/select_abstract
-  → user selects a candidate
+  → user selects a candidate (send both abstract and story_prompt)
 
 POST /stories/{draft_id}/generate_story
   → story text and audio generation starts in background
@@ -122,6 +122,23 @@ GET /stories/in_progress  (poll)
   → 404                       → generation complete
 
 GET /stories/  → list of completed stories
+```
+
+#### Error Recovery
+
+If a background task (LLM or TTS) fails, the draft status transitions to one of the `failed_*` states and the `error` field contains the error message.
+
+**Recovery is automatic** — calling any of the following endpoints while the draft is in a `failed_*` state will clear the error and resume generation from the failed step without any extra action from the client:
+
+- `GET /{draft_id}/abstracts`
+- `POST /{draft_id}/select_abstract`
+- `POST /{draft_id}/generate_story`
+
+```
+GET /stories/in_progress  (poll)
+  → status: failed_generating_abstract  → call GET /{draft_id}/abstracts to auto-resume
+  → status: failed_generating_text      → call POST /{draft_id}/generate_story to auto-resume
+  → status: failed_generating_audio     → call POST /{draft_id}/generate_story to auto-resume
 ```
 
 ---
@@ -141,7 +158,8 @@ Starts story generation. Creates a StoryDraft and begins abstract generation in 
 ```json
 {
   "draft_id": "uuid",
-  "status": "generating_abstract"
+  "status": "generating_abstract",
+  "error": null
 }
 ```
 
@@ -154,13 +172,14 @@ Starts story generation. Creates a StoryDraft and begins abstract generation in 
 ---
 
 #### `GET /api/v1/stories/in_progress`
-Returns the `draft_id` and current status of the in-progress story.
+Returns the `draft_id`, current status, and error (if any) of the in-progress story.
 
 **Response** `200`
 ```json
 {
   "draft_id": "uuid",
-  "status": "abstract_ready"
+  "status": "abstract_ready",
+  "error": null
 }
 ```
 
@@ -172,6 +191,9 @@ Returns the `draft_id` and current status of the in-progress story.
 | `abstract_ready` | Waiting for user to select an abstract |
 | `generating_text` | Generating story text |
 | `generating_audio` | Generating audio |
+| `failed_generating_abstract` | Abstract generation failed — call `GET /{draft_id}/abstracts` to retry |
+| `failed_generating_text` | Story text generation failed — call `POST /{draft_id}/generate_story` to retry |
+| `failed_generating_audio` | Audio generation failed — call `POST /{draft_id}/generate_story` to retry |
 
 **Errors**
 | Status | Description |
@@ -183,12 +205,23 @@ Returns the `draft_id` and current status of the in-progress story.
 #### `GET /api/v1/stories/{draft_id}/abstracts`
 Returns the list of generated abstract candidates. Returns `202` while still generating.
 
+If the draft is in a `failed_generating_abstract` state, calling this endpoint automatically resumes generation.
+
 **Response** `200`
 ```json
 [
-  "A brave girl joins a friendly robot captain to collect lost stars.",
-  "Emma discovers a spaceship and goes on a midnight mission.",
-  "A young explorer teams up with alien friends."
+  {
+    "abstract": "A brave girl joins a friendly robot captain to collect lost stars.",
+    "story_prompt": "Write a story about a brave girl and a robot captain collecting lost stars."
+  },
+  {
+    "abstract": "Emma discovers a spaceship and goes on a midnight mission.",
+    "story_prompt": "Write a story about Emma discovering a spaceship on a midnight mission."
+  },
+  {
+    "abstract": "A young explorer teams up with alien friends.",
+    "story_prompt": "Write a story about a young explorer who teams up with alien friends."
+  }
 ]
 ```
 
@@ -201,12 +234,15 @@ Returns the list of generated abstract candidates. Returns `202` while still gen
 ---
 
 #### `POST /api/v1/stories/{draft_id}/select_abstract`
-Saves the user-selected abstract.
+Saves the user-selected abstract and its paired `story_prompt`.
+
+If the draft is in a `failed_generating_abstract` state, calling this endpoint automatically resumes generation before processing the selection.
 
 **Request**
 ```json
 {
-  "abstract": "A brave girl joins a friendly robot captain to collect lost stars."
+  "abstract": "A brave girl joins a friendly robot captain to collect lost stars.",
+  "story_prompt": "Write a story about a brave girl and a robot captain collecting lost stars."
 }
 ```
 
@@ -214,7 +250,8 @@ Saves the user-selected abstract.
 ```json
 {
   "draft_id": "uuid",
-  "status": "generating_text"
+  "status": "generating_text",
+  "error": null
 }
 ```
 
@@ -229,11 +266,14 @@ Saves the user-selected abstract.
 #### `POST /api/v1/stories/{draft_id}/generate_story`
 Triggers story text and audio generation in the background. When complete, a Story record is created and the draft is deleted.
 
+If the draft is in a `failed_generating_text` or `failed_generating_audio` state, calling this endpoint automatically resumes generation from the failed step.
+
 **Response** `202`
 ```json
 {
   "draft_id": "uuid",
-  "status": "generating_text"
+  "status": "generating_text",
+  "error": null
 }
 ```
 
@@ -264,7 +304,9 @@ Returns a paginated list of completed stories.
       "theme": "space adventure",
       "title": "Emma and the Star Pirates",
       "abstracts": ["candidate A", "candidate B", "candidate C"],
+      "story_prompts": ["prompt A", "prompt B", "prompt C"],
       "abstract": "selected abstract",
+      "story_prompt": "selected story prompt",
       "content": "Once upon a time...",
       "audio_url": "https://storage.example.com/audio/xxx.mp3",
       "created_at": "2024-01-01T00:00:00Z",
@@ -326,18 +368,24 @@ Soft-deletes a story. The record is retained in the database but hidden from all
 | `child_id` | UUID | Child ID (1:1) |
 | `theme` | string | Story theme |
 | `abstracts` | string[] \| null | Generated abstract candidates |
+| `story_prompts` | string[] \| null | Story prompts paired with each abstract |
 | `selected_abstract` | string \| null | Abstract chosen by the user |
+| `selected_story_prompt` | string \| null | Story prompt paired with the selected abstract |
 | `title` | string \| null | Generated title |
 | `generated_text` | string \| null | Generated story body |
+| `error` | string \| null | Error message from the last failed step |
 
 **Status is inferred from which fields are populated:**
 
 ```
-abstracts = null           → generating_abstract
-abstracts set              → abstract_ready
-selected_abstract set      → generating_text
-generated_text set         → generating_audio
-(draft deleted)            → completed
+error set, abstracts = null        → failed_generating_abstract
+error set, selected_abstract set   → failed_generating_text
+error set, generated_text set      → failed_generating_audio
+abstracts = null                   → generating_abstract
+abstracts set                      → abstract_ready
+selected_abstract set              → generating_text
+generated_text set                 → generating_audio
+(draft deleted)                    → completed
 ```
 
 ### Story (permanent, completed data)
@@ -349,7 +397,9 @@ generated_text set         → generating_audio
 | `theme` | string | Story theme |
 | `title` | string \| null | Generated title |
 | `abstracts` | string[] \| null | All generated abstract candidates |
+| `story_prompts` | string[] \| null | Story prompts paired with each abstract |
 | `abstract` | string \| null | The selected abstract |
+| `story_prompt` | string \| null | The story prompt paired with the selected abstract |
 | `content` | string \| null | Story body text |
 | `audio_url` | string \| null | Audio file URL |
 | `is_deleted` | bool | Soft-delete flag |
