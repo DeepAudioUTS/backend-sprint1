@@ -58,8 +58,6 @@ def seed() -> None:
         print("Seed completed successfully.")
         print("  Users   : alice@example.com, bob@example.com  (password: password123)")
         print("  Children: Emma (5), Liam (8) → Alice | Noah (6) → Bob")
-        print(f"  Stories : {len(completed_stories)} completed stories")
-        print("  Drafts  : 1 in-progress draft (Noah, status: generating_text)")
 
     except Exception:
         db.rollback()
