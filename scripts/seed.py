@@ -11,10 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from passlib.context import CryptContext
 
-from app.db.database import Base, SessionLocal, engine
+from app.db.session import SessionLocal, engine
+from app.models.base import Base
 from app.models.child import Child
-from app.models.story import Story
-from app.models.story_draft import StoryDraft
 from app.models.user import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
