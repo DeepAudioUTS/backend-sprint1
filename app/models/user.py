@@ -1,14 +1,14 @@
 import uuid
-from datetime import datetime
 
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.database import Base
+from app.models.base import Base, TimestampMixin
+from app.models.child import Child
 
 
-class User(Base):
+class User(Base, TimestampMixin):
     """User (parent) table.
 
     Attributes:
@@ -30,11 +30,4 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
     subscription_plan: Mapped[str] = mapped_column(String, nullable=False, default="free")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    children: Mapped[list["Child"]] = relationship("Child", back_populates="user")  # noqa: F821
+    children: Mapped[list[Child]] = relationship("Child", back_populates="user")  # noqa: F821

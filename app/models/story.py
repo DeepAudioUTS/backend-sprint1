@@ -1,14 +1,14 @@
 import uuid
-from datetime import datetime
 
 from sqlalchemy import Boolean, JSON, String, Text, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.database import Base
+from app.models.base import Base, TimestampMixin
+from app.models.child import Child
 
 
-class Story(Base):
+class Story(Base, TimestampMixin):
     """Completed story table.
 
     Stores the final output of the story generation pipeline.
@@ -47,11 +47,4 @@ class Story(Base):
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     audio_url: Mapped[str | None] = mapped_column(String, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    child: Mapped["Child"] = relationship("Child", back_populates="stories")  # noqa: F821
+    child: Mapped[Child] = relationship("Child", back_populates="stories")  # noqa: F821

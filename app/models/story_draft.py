@@ -1,12 +1,12 @@
 import uuid
-from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import JSON, String, Text, DateTime, ForeignKey, func
+from sqlalchemy import JSON, String, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.database import Base
+from app.models.base import Base, TimestampMixin
+from app.models.child import Child
 
 
 class DraftStatus(str, Enum):
@@ -45,7 +45,7 @@ def get_draft_status(draft: "StoryDraft") -> DraftStatus:
     return DraftStatus.GENERATING_ABSTRACT
 
 
-class StoryDraft(Base):
+class StoryDraft(Base, TimestampMixin):
     """Temporary storage for in-progress story generation.
 
     Holds intermediate data during story creation (abstract candidates,
@@ -88,11 +88,4 @@ class StoryDraft(Base):
     selected_story_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    child: Mapped["Child"] = relationship("Child", back_populates="story_draft")  # noqa: F821
+    child: Mapped[Child] = relationship("Child", back_populates="story_draft")  # noqa: F821
