@@ -36,7 +36,7 @@ def _call_story_api(theme: str, abstract: str, story_prompt: str) -> tuple[str, 
 def _call_audio_api(file_id: uuid.UUID, content: str) -> str:
     """POST to the TTS audio generation endpoint. Returns audio_url."""
     url = f"{settings.TTS_API_URL}/audio/generate"
-    response = httpx.post(url, json={"text": content, "file_id": file_id}, timeout=_TTS_TIMEOUT)
+    response = httpx.post(url, json={"text": content, "file_id": str(file_id)}, timeout=_TTS_TIMEOUT)
     response.raise_for_status()
     return response.json()["audio_url"]
 
