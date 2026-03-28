@@ -5,9 +5,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
-from app.models.user import User
-from app.models.story import Story
-from app.models.story_draft import StoryDraft
 
 
 class Child(Base, TimestampMixin):
@@ -32,6 +29,6 @@ class Child(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     age: Mapped[int] = mapped_column(Integer, nullable=False)
-    user: Mapped[User] = relationship("User", back_populates="children")  # noqa: F821
-    stories: Mapped[list[Story]] = relationship("Story", back_populates="child")  # noqa: F821
-    story_draft: Mapped[StoryDraft | None] = relationship("StoryDraft", back_populates="child", uselist=False)  # noqa: F821
+    user: Mapped["User"] = relationship("User", back_populates="children")  # noqa: F821
+    stories: Mapped[list["Story"]] = relationship("Story", back_populates="child")  # noqa: F821
+    story_draft: Mapped["StoryDraft" | None] = relationship("StoryDraft", back_populates="child", uselist=False)  # noqa: F821

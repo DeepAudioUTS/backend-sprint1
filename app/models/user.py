@@ -5,7 +5,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
-from app.models.child import Child
 
 
 class User(Base, TimestampMixin):
@@ -30,4 +29,4 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
     subscription_plan: Mapped[str] = mapped_column(String, nullable=False, default="free")
-    children: Mapped[list[Child]] = relationship("Child", back_populates="user")  # noqa: F821
+    children: Mapped[list["Child"]] = relationship("Child", back_populates="user")  # noqa: F821

@@ -6,7 +6,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
-from app.models.child import Child
 
 
 class DraftStatus(str, Enum):
@@ -88,4 +87,4 @@ class StoryDraft(Base, TimestampMixin):
     selected_story_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    child: Mapped[Child] = relationship("Child", back_populates="story_draft")  # noqa: F821
+    child: Mapped["Child"] = relationship("Child", back_populates="story_draft")  # noqa: F821
