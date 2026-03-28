@@ -73,8 +73,8 @@ def fetch_audio_bytes(audio_url: str) -> tuple[bytes, str]:
 # External API calls
 # ---------------------------------------------------------------------------
 
-_LLM_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
-_TTS_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
+_LLM_TIMEOUT = httpx.Timeout(connect=10.0, read=1000.0, write=10.0, pool=10.0)
+_TTS_TIMEOUT = httpx.Timeout(connect=10.0, read=1000.0, write=10.0, pool=10.0)
 
 
 def _call_abstract_api(theme: str) -> list[AbstractCandidate]:
