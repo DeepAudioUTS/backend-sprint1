@@ -3,11 +3,9 @@ import uuid
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
 
-from app.api.v1.deps import DBSession, CurrentUser
+from app.api.v1.deps import CurrentUser, DBSession
 from app.exceptions import ConflictError, NotFoundError, StillProcessingError
-from app.models.user import User
 from app.schemas.story import (
     AbstractCandidate,
     AbstractSelect,
@@ -16,18 +14,18 @@ from app.schemas.story import (
     StoryListResponse,
     StoryResponse,
 )
-from app.tasks import story as story_tasks
 from app.service import story as story_service
+from app.tasks import story as story_tasks
 
 router = APIRouter()
 
 
 @router.get("/", response_model=StoryListResponse)
 def get_stories(
+    current_user: CurrentUser,
+    db: DBSession,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    current_user: User = CurrentUser,
-    db: Session = DBSession,
 ) -> StoryListResponse:
     """Return a paginated list of completed stories for the authenticated user."""
     return story_service.get_stories(db, current_user.id, limit=limit, offset=offset)
@@ -37,7 +35,7 @@ def get_stories(
 def post_story(
     story_in: StoryCreate,
     background_tasks: BackgroundTasks,
-    db: Session = DBSession,
+    db: DBSession,
 ) -> InProgressStoryResponse:
     """Create a StoryDraft and kick off abstract generation in the background."""
     result = story_service.create_story_draft(db, story_in.child_id, story_in.theme)
@@ -47,8 +45,8 @@ def post_story(
 
 @router.get("/in_progress", response_model=InProgressStoryResponse)
 def get_in_progress_story(
-    current_user: User = CurrentUser,
-    db: Session = DBSession,
+    current_user: CurrentUser,
+    db: DBSession,
 ) -> InProgressStoryResponse:
     """Return the draft_id and status of the currently in-progress story."""
     result = story_service.get_in_progress_story(db, current_user.id)
@@ -63,8 +61,8 @@ def get_in_progress_story(
 @router.get("/{draft_id}/abstracts", response_model=list[AbstractCandidate])
 def get_abstracts(
     draft_id: uuid.UUID,
-    current_user: User = CurrentUser,
-    db: Session = DBSession,
+    current_user: CurrentUser,
+    db: DBSession,
 ) -> list[AbstractCandidate]:
     """Poll for generated abstract candidates."""
     try:
@@ -79,8 +77,8 @@ def get_abstracts(
 def post_select_abstract(
     draft_id: uuid.UUID,
     body: AbstractSelect,
-    current_user: User = CurrentUser,
-    db: Session = DBSession,
+    current_user: CurrentUser,
+    db: DBSession,
 ) -> InProgressStoryResponse:
     """Persist the user-selected abstract and its paired story_prompt on the draft."""
     try:
@@ -105,8 +103,8 @@ def post_select_abstract(
 def generate_story(
     draft_id: uuid.UUID,
     background_tasks: BackgroundTasks,
-    current_user: User = CurrentUser,
-    db: Session = DBSession,
+    current_user: CurrentUser,
+    db: DBSession,
 ) -> InProgressStoryResponse:
     """Trigger story and audio generation in the background."""
     try:
@@ -122,8 +120,8 @@ def generate_story(
 @router.get("/{story_id}/audio")
 def get_story_audio(
     story_id: uuid.UUID,
-    current_user: User = CurrentUser,
-    db: Session = DBSession,
+    current_user: CurrentUser,
+    db: DBSession,
 ) -> Response:
     """Fetch and return the audio file for a completed story."""
     try:
@@ -146,8 +144,8 @@ def get_story_audio(
 @router.delete("/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_story_endpoint(
     story_id: uuid.UUID,
-    current_user: User = CurrentUser,
-    db: Session = DBSession,
+    current_user: CurrentUser,
+    db: DBSession,
 ) -> None:
     """Soft-delete a completed story by ID."""
     try:
@@ -159,8 +157,8 @@ def delete_story_endpoint(
 @router.get("/{story_id}", response_model=StoryResponse)
 def get_story(
     story_id: uuid.UUID,
-    current_user: User = CurrentUser,
-    db: Session = DBSession,
+    current_user: CurrentUser,
+    db: DBSession,
 ) -> StoryResponse:
     """Return a completed story by ID."""
     story = story_service.get_story(db, story_id=story_id, user_id=current_user.id)
